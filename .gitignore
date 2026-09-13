@@ -1,0 +1,13 @@
+.pixi/
+__pycache__/
+*.py[cod]
+.cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
