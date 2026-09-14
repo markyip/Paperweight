@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-theme-pref="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Permissions-Policy" content="clipboard-write=(self)" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Paperweight</title>
+  </head>
+  <body>
+    <header class="titlebar" id="titlebar">
+      <div class="titlebar-drag" id="titlebar-drag" data-tauri-drag-region></div>
+      <h1 class="titlebar-title" id="titlebar-title" data-tauri-drag-region>Paperweight</h1>
+      <div class="titlebar-controls">
+        <button type="button" class="titlebar-btn" id="btn-win-min" title="Minimize" aria-label="Minimize">
+          <svg viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M1 5h8" />
+          </svg>
+        </button>
+        <button type="button" class="titlebar-btn" id="btn-win-max" title="Maximize" aria-label="Maximize">
+          <svg class="icon-win-max" viewBox="0 0 10 10" aria-hidden="true">
+            <rect x="1.5" y="1.5" width="7" height="7" />
+          </svg>
+          <svg class="icon-win-restore" viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M3 3.5h4.5V8H3z" />
+            <path d="M4.5 2h4v4.5" />
+          </svg>
+        </button>
+        <button type="button" class="titlebar-btn titlebar-close" id="btn-win-close" title="Close" aria-label="Close">
+          <svg viewBox="0 0 10 10" aria-hidden="true">
+            <path d="M2 2l6 6M8 2L2 8" />
+          </svg>
+        </button>
+      </div>
+    </header>
+    <div class="app" id="app">
+      <div class="body">
+        <aside class="sidebar" id="sidebar" hidden>
+          <section>
+            <h2>Bookmarks</h2>
+            <ul id="bookmark-list"></ul>
+          </section>
+          <section>
+            <h2>Contents</h2>
+            <ul id="toc-list"></ul>
+          </section>
+        </aside>
+        <main class="stage" id="stage">
+          <div class="empty" id="empty">
+            <img src="/src/assets/pageviewer.png" width="72" height="72" alt="" />
+            <p class="tagline">A lightweight PDF / EPUB reader.</p>
+            <p class="muted" id="empty-hint">Drop a PDF or EPUB here, or click to open.</p>
+          </div>
+          <input
+            id="file-open"
+            type="file"
+            accept=".pdf,.epub,application/pdf,application/epub+zip"
+            hidden
+          />
+          <div class="pages" id="pages"></div>
+        </main>
+      </div>
+
+      <div class="hud hud-left" id="hud-left">
+        <button type="button" class="icon-btn" id="btn-contents" title="Contents" aria-label="Contents" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+          </svg>
+        </button>
+        <button type="button" class="icon-btn" id="btn-bookmark" title="Bookmark page 1" aria-label="Bookmark page 1" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+        <div class="hl-cluster">
+          <button type="button" class="icon-btn" id="btn-highlight" title="Highlighter — color selected text, or drag a bar" aria-label="Highlighter" aria-pressed="false">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 20h4l9.5-9.5-4-4L4 16v4z" />
+              <path d="M14 6.5l3.5 3.5" />
+              <path d="M4 20l3-1" />
+            </svg>
+          </button>
+          <div class="hl-tools" id="hl-tools">
+            <div class="color-well" id="color-well">
+              <button type="button" class="swatch" data-color="#FACC15" title="Yellow — highlight selected text" aria-label="Yellow — highlight selected text"></button>
+              <button type="button" class="swatch" data-color="#EF4444" title="Red — highlight selected text" aria-label="Red — highlight selected text"></button>
+              <button type="button" class="swatch" data-color="#22C55E" title="Green — highlight selected text" aria-label="Green — highlight selected text"></button>
+              <button type="button" class="swatch" data-color="#3B82F6" title="Blue — highlight selected text" aria-label="Blue — highlight selected text"></button>
+            </div>
+            <span class="hud-divider" aria-hidden="true"></span>
+            <button type="button" class="icon-btn hl-erase" id="btn-erase" title="Eraser — click or drag to remove highlights" aria-label="Eraser" aria-pressed="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+                <path d="M22 21H7" />
+                <path d="m5 11 9 9" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <button type="button" class="icon-btn" id="btn-comment" title="Comment — click to pin a note" aria-label="Comment" aria-pressed="false">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="fab" id="fab" data-panel="closed">
+        <div class="fab-menu" id="fab-menu">
+          <button type="button" class="icon-btn round" id="btn-print" title="Print" aria-label="Print">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M6 9V3h12v6" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <path d="M6 14h12v8H6z" />
+            </svg>
+          </button>
+          <button type="button" class="icon-btn round switch" id="btn-theme" title="Appearance: Dark — click for Auto" aria-label="Appearance: Dark — click for Auto">
+            <svg class="icon-moon" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 14.5A8.5 8.5 0 1 1 9.5 3 7 7 0 0 0 21 14.5z" />
+            </svg>
+            <svg class="icon-sun" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+            </svg>
+            <svg class="icon-auto" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path class="half" d="M12 3a9 9 0 0 0 0 18Z" />
+            </svg>
+          </button>
+          <button type="button" class="icon-btn round switch" id="btn-pomodoro" data-pomo-duration="0" title="Pomodoro: Off — click for 25" aria-label="Pomodoro: Off — click for 25">
+            <span class="pomo-dur-label" id="pomo-dur-label">Off</span>
+            <span class="pomo-badge" id="pomo-badge" hidden>25:00</span>
+          </button>
+          <button type="button" class="icon-btn round switch" id="btn-pomo-reps" title="Repetitions: 4 — click for 2" aria-label="Repetitions: 4 — click for 2" hidden>
+            <span class="pomo-reps-label" id="pomo-reps-label">4</span>
+          </button>
+          <button type="button" class="icon-btn round switch" id="btn-scroll" title="Continuous scroll" aria-label="Continuous scroll" data-snap="0">
+            <svg class="icon-scroll-continuous" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="6" y="2.5" width="12" height="8.5" rx="1.5" />
+              <rect x="6" y="13" width="12" height="8.5" rx="1.5" />
+            </svg>
+            <svg class="icon-scroll-page" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="7" y="3" width="10" height="18" rx="1.5" />
+            </svg>
+          </button>
+          <button type="button" class="icon-btn round switch" id="btn-columns" title="1 page" aria-label="1 page" data-cols="1">
+            <svg class="icon-cols-1" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="7" y="4" width="10" height="16" rx="1" />
+            </svg>
+            <svg class="icon-cols-2" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="5" width="8" height="14" rx="1" />
+              <rect x="13" y="5" width="8" height="14" rx="1" />
+            </svg>
+            <span class="icon-cols-auto" aria-hidden="true">Auto</span>
+          </button>
+          <div class="fab-flyout-wrap">
+            <div class="fab-search" id="fab-search">
+              <input id="find-input" type="search" placeholder="Find" autocomplete="off" />
+              <span class="find-status" id="find-status"></span>
+              <button type="button" class="icon-btn tight" id="find-prev" title="Previous" aria-label="Previous">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
+              </button>
+              <button type="button" class="icon-btn tight" id="find-next" title="Next" aria-label="Next">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
+              </button>
+            </div>
+            <button type="button" class="icon-btn round" id="btn-find" title="Find" aria-label="Find" aria-expanded="false" aria-haspopup="true" aria-controls="fab-search">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" />
+                <path d="M20 20l-3-3" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <button type="button" class="icon-btn round fab-toggle" id="btn-fab" title="Settings" aria-label="Settings" aria-expanded="false" aria-haspopup="true" aria-controls="fab-menu">
+          <svg class="icon-gear" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <svg class="icon-close" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="hud hud-bottom" id="hud-bottom">
+        <div class="hud-bottom-bar">
+          <input
+            id="page-input"
+            class="page-input"
+            inputmode="numeric"
+            autocomplete="off"
+            aria-label="Page"
+          />
+          <span class="page-sep">/</span>
+          <span id="page-total" class="page-total"></span>
+          <span class="hud-divider"></span>
+          <button type="button" class="icon-btn tight" id="btn-zoom-out" title="Zoom out" aria-label="Zoom out">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" /></svg>
+          </button>
+          <span class="zoom-label" id="zoom-label">100%</span>
+          <button type="button" class="icon-btn tight" id="btn-zoom-in" title="Zoom in" aria-label="Zoom in">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          </button>
+          <button type="button" class="icon-btn tight" id="btn-fit-page" title="Fit page" aria-label="Fit page">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+              <path d="M16 3h3a2 2 0 0 1 2 2v3" />
+              <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
+              <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+              <rect x="8" y="6.5" width="8" height="11" rx="1" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="pomo-overlay" id="pomo-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="pomo-copy">
+        <div class="pomo-card">
+          <p class="pomo-copy" id="pomo-copy">Shift your focus away from the page for a little while.</p>
+          <p class="pomo-break-time" id="pomo-break-time" aria-live="polite">05:00</p>
+          <button type="button" class="btn" id="pomo-dismiss">Resume reading</button>
+        </div>
+      </div>
+    </div>
+    <div class="sel-menu" id="sel-menu" hidden role="menu" aria-label="Selection">
+      <button type="button" class="sel-menu-item" id="sel-copy" role="menuitem">Copy</button>
+      <div class="sel-menu-hl" id="sel-menu-hl" hidden>
+        <button type="button" class="sel-menu-item" id="sel-highlight" role="menuitem">Highlight</button>
+        <div class="sel-swatches" id="sel-swatches"></div>
+      </div>
+    </div>
+    <div class="comment-pop" id="comment-pop" hidden>
+      <button type="button" class="comment-pop-close" id="comment-pop-close" title="Close" aria-label="Close comment">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
+      </button>
+      <textarea id="comment-text" rows="4" maxlength="2000" placeholder="Comment"></textarea>
+      <div class="comment-actions">
+        <span class="comment-count" id="comment-count" aria-live="polite">0 / 2000</span>
+        <button type="button" class="btn" id="comment-save">Save</button>
+        <button type="button" class="btn ghost" id="comment-delete">Delete</button>
+        <button type="button" class="btn ghost" id="comment-cancel">Cancel</button>
+      </div>
+    </div>
+    <div class="pw-overlay" id="pw-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="pw-label">
+      <form class="pw-card" id="pw-form" autocomplete="off">
+        <label id="pw-label" for="pw-input">Password</label>
+        <input
+          id="pw-input"
+          type="password"
+          name="pdf-password"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <p class="pw-error" id="pw-error" hidden aria-live="polite">Incorrect password</p>
+        <div class="pw-actions">
+          <button type="submit" class="btn" id="pw-open">Open</button>
+          <button type="button" class="btn ghost" id="pw-cancel">Cancel</button>
+        </div>
+      </form>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

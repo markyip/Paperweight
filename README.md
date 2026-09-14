@@ -1,39 +1,54 @@
-# Pageviewer
+# Paperweight
 
-A lightweight **PDF / EPUB** reader. View only — no editing, no annotation, no form fill, no signing.
+A lightweight **PDF / EPUB** reader. The most popular PDF viewer is bulky.
 
 **Language / 語言：** English · [繁體中文](README.zh-TW.md)
 
 ## Why it exists
 
-This is a **separate app** from [RAWviewer](https://github.com). Photo culling and document reading do not belong in the same window.
+The most popular PDF viewer is bulky. That is a cloud client, an editor, and a form factory stuffed into one “PDF” box — not a viewer. You should not need all that just to *read a file* and hit Print.
 
-It is built for **ultrawide** screens (especially **32:9**): Auto layout shows **five** portrait pages across on 5120×1440, three on 21:9, two on 16:9. Override with **1–6**.
+This app is the opposite: **small**, **fast**, and only daily stuff — open a PDF or EPUB, scroll, zoom, contents, bookmarks, find text, light or dark, **Send to printer**. Not an enterprise PDF factory.
+
+## Download
+
+Get a build from **Releases**. You do not need the source code.
+
+**Windows** (needs WebView2, already on most Windows 10/11 PCs)
+
+- **Portable:** `paperweight.exe` — double-click; put it on a USB stick if you like.
+- **Installer:** `Paperweight_*_x64-setup.exe` — Start menu shortcut and uninstall. Optional.
+
+**macOS**
+
+- **`Paperweight_*.dmg`** — open the disk image and drag Paperweight to Applications. If macOS blocks it, right-click the app → **Open**.
+
+macOS builds must be produced on a Mac (or GitHub Actions). They cannot be compiled from Windows.
+
+## How to use
+
+1. Open Paperweight.
+2. Drop a PDF or EPUB on the window, click the empty area, or press **Ctrl+O**.
+3. **Ctrl+P** to print.
+
+That’s it.
 
 ## Features
 
-- **Zoom** (`+` / `−` / Ctrl+scroll). Double-click toggles fit and 160%. Drag to pan when zoomed.
-- **Pages across:** Auto, or press **1–6**.
-- **Chapters** when the file embeds a TOC (PDF bookmarks, EPUB NCX / nav). **T** or the left edge. Type a page number in the HUD.
-- **F** / **F11** full-screen reading. Esc leaves full screen, then the drop zone.
-- **Ctrl+← / Ctrl+→** previous / next PDF or EPUB in the same folder.
-- **PDF signatures** are detected and badged (“Signed”). There is no signing UI.
-- Encrypted PDFs are refused.
+- Open **PDF** and **EPUB**
+- Scroll through the whole document
+- Zoom, and fit the page in the window
+- Contents, when the file has a table of contents
+- Bookmarks, and it reopens the last file if it is still on the device
+- Find text
+- Select text and copy; PDF highlighter and page comments — stored locally, not written into the file
+- Light, dark, or auto appearance
+- **Ctrl+P** — Send to printer (system dialog)
+- Password-locked PDFs: enter the password in the popup to open
+- Optional pomodoro timer
 
-## Run
+No editing, forms, DRM, or writing into the original file.
 
-```bash
-pixi install
-pixi run start
-# or: pixi run python src/main.py path\to\book.pdf
-```
+## Build from source
 
-Drop a file on the window, or **Ctrl+O**.
-
-```bash
-pixi run test
-```
-
-## Not in this app
-
-Editing, redaction, form fill, creating signatures, DRM / encrypted PDFs, publisher page numbers for EPUB (pagination is a viewport layout).
+Only if you are changing the app. Need Node, Rust, WebView2 on Windows, and Xcode command-line tools on a Mac. See `tauri/README.md`.

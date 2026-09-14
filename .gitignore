@@ -11,3 +11,6 @@ build/
 Thumbs.db
 .idea/
 .vscode/
+node_modules/
+tauri/src-tauri/target/
+tauri/dist/
