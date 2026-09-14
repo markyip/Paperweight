@@ -1,6 +1,6 @@
 # Paperweight
 
-A lightweight **PDF / EPUB** reader. The most popular PDF viewer is bulky.
+A lightweight **PDF / EPUB** reader.
 
 **Language / 語言：** English · [繁體中文](README.zh-TW.md)
 
