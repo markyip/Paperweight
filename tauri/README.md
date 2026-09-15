@@ -1,6 +1,6 @@
 # Paperweight — develop
 
-Users download **portable**, **installer**, or **macOS DMG** builds from GitHub **Releases**. This folder is the source for those builds.
+Windows users download **portable** or **installer** builds from GitHub **Releases**. macOS has no signed build to download — see below. This folder is the source for those builds.
 
 Need Node, Rust, WebView2 on Windows, and Xcode command-line tools on macOS.
 
@@ -35,3 +35,5 @@ Tauri only bundles targets for **the OS you are on**.
 - Disk image: `src-tauri/target/release/bundle/dmg/Paperweight_0.1.1_*.dmg`
 
 You cannot produce a `.app` / `.dmg` from Windows.
+
+This is the only way to get Paperweight on macOS. The app isn't code-signed or notarized (no Apple Developer account), so CI's `.dmg`/`.app` build artifacts are for CI verification only, not for end-user distribution — a downloaded copy gets Gatekeeper-quarantined and macOS refuses to open it. A locally-built copy never picks up that quarantine flag, so it opens normally straight from `bundle/macos/Paperweight.app` (or drag it to `/Applications`).

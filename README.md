@@ -21,9 +21,16 @@ Get a build from **Releases**. You do not need the source code.
 
 **macOS**
 
-- **`Paperweight_*.dmg`** — open the disk image and drag Paperweight to Applications. If macOS blocks it, right-click the app → **Open**.
+There is no ready-to-run macOS download. The app isn't code-signed or notarized, so a downloaded `.dmg`/`.app` gets quarantined by Gatekeeper and macOS refuses to open it ("Paperweight is damaged and can't be opened") — right-click → Open doesn't get past that for an unsigned build. Build it yourself instead; it takes a few minutes and the result isn't quarantined since it never touched a browser download:
 
-macOS builds must be produced on a Mac (or GitHub Actions). They cannot be compiled from Windows.
+```bash
+git clone https://github.com/markyip/Paperweight.git
+cd Paperweight/tauri
+npm install
+npm run tauri build
+```
+
+Needs [Node.js](https://nodejs.org), [Rust](https://rustup.rs), and Xcode command-line tools (`xcode-select --install`). The app lands at `tauri/src-tauri/target/release/bundle/macos/Paperweight.app` (also bundled as a `.dmg` alongside it). See `tauri/README.md` for details.
 
 ## How to use
 

@@ -228,6 +228,12 @@ function inTauri(): boolean {
   return "__TAURI_INTERNALS__" in window;
 }
 
+function isMacPlatform(): boolean {
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const plat = nav.userAgentData?.platform || navigator.platform || "";
+  return /mac/i.test(plat) || /Macintosh|Mac OS X/i.test(navigator.userAgent || "");
+}
+
 function hasDoc(): boolean {
   return pdf !== null || epubBook !== null;
 }
@@ -3626,6 +3632,7 @@ function wireColorWell() {
 }
 
 function wire() {
+  document.documentElement.classList.toggle("is-mac", isMacPlatform());
   applyThemePref(loadThemePref());
   wireTitlebar();
   wireTabs();

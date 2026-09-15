@@ -21,9 +21,16 @@
 
 **macOS**
 
-- **`Paperweight_*.dmg`** — 打開磁碟映像，把 Paperweight 拖到「應用程式」。若系統擋下來，對程式按右鍵 → **打開**。
+目前沒有可直接執行的 macOS 下載版。App 未經簽章與公證，下載下來的 `.dmg`／`.app` 會被 Gatekeeper 隔離，macOS 會拒絕開啟（「Paperweight 已損毀，無法打開」）——未簽章的版本，右鍵→打開也沒用。請自行編譯，只要幾分鐘，而且編譯出來的檔案沒有被瀏覽器下載過，不會被隔離：
 
-macOS 版必須在 Mac（或 GitHub Actions）上編譯，無法從 Windows 交叉編譯。
+```bash
+git clone https://github.com/markyip/Paperweight.git
+cd Paperweight/tauri
+npm install
+npm run tauri build
+```
+
+需要 [Node.js](https://nodejs.org)、[Rust](https://rustup.rs)，以及 Xcode 命令列工具（`xcode-select --install`）。編譯完成的 App 在 `tauri/src-tauri/target/release/bundle/macos/Paperweight.app`（同目錄也會附帶 `.dmg`）。詳細說明見 `tauri/README.md`。
 
 ## 怎麼用
 

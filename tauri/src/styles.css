@@ -240,6 +240,10 @@ html[data-fullscreen="1"] .titlebar {
   grid-area: 1 / 1;
 }
 
+.titlebar-btn .icon-mac-zoom {
+  display: none;
+}
+
 .titlebar-btn:not(.is-max) .icon-win-restore,
 .titlebar-btn.is-max .icon-win-max {
   visibility: hidden;
@@ -257,6 +261,86 @@ html[data-fullscreen="1"] .titlebar {
 .titlebar-close:hover {
   background: #e81123;
   color: #fff;
+}
+
+/* macOS: traffic lights replace the Windows min/max/close cluster, moved
+   to the left edge in close / minimize / zoom order. */
+html.is-mac .titlebar-controls {
+  order: -1;
+  align-items: center;
+  gap: 8px;
+  padding: 0 0 0 14px;
+}
+
+html.is-mac #btn-win-close {
+  order: 0;
+}
+
+html.is-mac #btn-win-min {
+  order: 1;
+}
+
+html.is-mac #btn-win-max {
+  order: 2;
+}
+
+html.is-mac .titlebar-btn {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #6e6e6e;
+}
+
+html.is-mac #btn-win-close {
+  background: #ff5f57;
+}
+
+html.is-mac #btn-win-min {
+  background: #febc2e;
+}
+
+html.is-mac #btn-win-max {
+  background: #28c840;
+}
+
+html.is-mac .titlebar-btn:hover {
+  background: inherit;
+  filter: brightness(0.92);
+}
+
+html.is-mac .titlebar-close:hover {
+  background: #ff5f57;
+  color: inherit;
+}
+
+html.is-mac .titlebar-btn svg {
+  width: 7px;
+  height: 7px;
+  stroke: rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+html.is-mac .titlebar-controls:hover .titlebar-btn svg {
+  opacity: 1;
+}
+
+html.is-mac .icon-win-max,
+html.is-mac .icon-win-restore {
+  display: none;
+}
+
+html.is-mac .icon-mac-zoom {
+  display: block;
+  grid-area: 1 / 1;
+}
+
+html.is-mac .titlebar-title {
+  padding: 0 80px;
+}
+
+html.is-mac .titlebar-tabs {
+  max-width: calc(100% - 90px);
 }
 
 .app:not(.has-doc) .hud-left,
