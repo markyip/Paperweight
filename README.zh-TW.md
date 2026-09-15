@@ -1,8 +1,21 @@
-# Paperweight
+<p align="center">
+  <img src="assets/pageviewer.png" width="128" height="128" alt="Paperweight">
+</p>
 
-輕量 **PDF／EPUB** 閱讀器。最熱門的 PDF 閱讀器太臃腫。
+<h1 align="center">Paperweight</h1>
 
-**Language / 語言：** [English](README.md) · 繁體中文
+<p align="center">輕量 <strong>PDF／EPUB</strong> 閱讀器。</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/markyip/Paperweight?style=flat-square&labelColor=111113&color=3b82f6&label=version" alt="最新版本">
+  <img src="https://img.shields.io/github/downloads/markyip/Paperweight/total?style=flat-square&labelColor=111113&color=3b82f6&label=downloads" alt="總下載次數">
+  <img src="https://img.shields.io/badge/license-MIT-a1a1aa?style=flat-square&labelColor=111113" alt="License: MIT">
+  <a href="https://www.buymeacoffee.com/markyip">
+    <img src="https://img.shields.io/badge/buy%20me%20a%20coffee-☕-d9a441?style=flat-square&labelColor=111113" alt="Buy Me a Coffee">
+  </a>
+</p>
+
+<p align="center"><strong>Language / 語言：</strong> <a href="README.md">English</a> · 繁體中文</p>
 
 ## 為什麼做這個
 

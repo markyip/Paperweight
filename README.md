@@ -1,8 +1,21 @@
-# Paperweight
+<p align="center">
+  <img src="assets/pageviewer.png" width="128" height="128" alt="Paperweight">
+</p>
 
-A lightweight **PDF / EPUB** reader.
+<h1 align="center">Paperweight</h1>
 
-**Language / 語言：** English · [繁體中文](README.zh-TW.md)
+<p align="center">A lightweight <strong>PDF / EPUB</strong> reader.</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/v/release/markyip/Paperweight?style=flat-square&labelColor=111113&color=3b82f6&label=version" alt="Latest version">
+  <img src="https://img.shields.io/github/downloads/markyip/Paperweight/total?style=flat-square&labelColor=111113&color=3b82f6&label=downloads" alt="Total downloads">
+  <img src="https://img.shields.io/badge/license-MIT-a1a1aa?style=flat-square&labelColor=111113" alt="License: MIT">
+  <a href="https://www.buymeacoffee.com/markyip">
+    <img src="https://img.shields.io/badge/buy%20me%20a%20coffee-☕-d9a441?style=flat-square&labelColor=111113" alt="Buy Me a Coffee">
+  </a>
+</p>
+
+<p align="center"><strong>Language / 語言：</strong> English · <a href="README.zh-TW.md">繁體中文</a></p>
 
 ## Why it exists
 
