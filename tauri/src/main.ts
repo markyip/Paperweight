@@ -3,6 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import * as pdfjs from "pdfjs-dist";
 import type { PDFDocumentProxy, PDFPageProxy } from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -56,6 +57,12 @@ const $ = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 
 const APP_TITLE = "Paperweight";
+/** Keep in sync with package.json / tauri.conf.json / Cargo.toml on version bumps. */
+const APP_VERSION = "0.1.1";
+const UPDATE_CHECK_URL = "https://api.github.com/repos/markyip/Paperweight/releases/latest";
+const UPDATE_FALLBACK_URL = "https://github.com/markyip/Paperweight/releases/latest";
+const UPDATE_SNOOZE_KEY = "paperweight.update.snoozeUntil";
+const UPDATE_SNOOZE_MS = 28 * 24 * 60 * 60 * 1000;
 
 const TAB_DRAG_MIME = "application/x-paperweight-tab";
 const TAB_BOOT_PREFIX = "paperweight.boot.";
@@ -131,6 +138,10 @@ const ui = {
   selHighlight: $("sel-highlight") as HTMLButtonElement,
   selMenuHl: $("sel-menu-hl"),
   selSwatches: $("sel-swatches"),
+  updateToast: $("update-toast"),
+  updateToastMsg: $("update-toast-msg"),
+  updateToastView: $("update-toast-view") as HTMLButtonElement,
+  updateToastDismiss: $("update-toast-dismiss") as HTMLButtonElement,
 };
 
 let pdf: PDFDocumentProxy | null = null;
@@ -3631,11 +3642,85 @@ function wireColorWell() {
   });
 }
 
+function updateSnoozedUntil(): number {
+  const raw = Number(localStorage.getItem(UPDATE_SNOOZE_KEY) || "0");
+  return Number.isFinite(raw) ? raw : 0;
+}
+
+function snoozeUpdateCheck() {
+  try {
+    localStorage.setItem(UPDATE_SNOOZE_KEY, String(Date.now() + UPDATE_SNOOZE_MS));
+  } catch {
+    /* quota */
+  }
+}
+
+/** Compares dotted version strings, e.g. "0.2.0" vs "0.1.1". Positive when `a` is newer. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+let updateReleaseUrl = "";
+
+function hideUpdateToast() {
+  ui.updateToast.hidden = true;
+}
+
+function showUpdateToast(version: string, url: string) {
+  updateReleaseUrl = url;
+  ui.updateToastMsg.textContent = `Version ${version} is out — you're on ${APP_VERSION}.`;
+  ui.updateToast.hidden = false;
+}
+
+function wireUpdateToast() {
+  ui.updateToastDismiss.addEventListener("click", () => {
+    snoozeUpdateCheck();
+    hideUpdateToast();
+  });
+  ui.updateToastView.addEventListener("click", () => {
+    void openUrl(updateReleaseUrl || UPDATE_FALLBACK_URL);
+  });
+}
+
+async function checkForUpdate() {
+  if (!inTauri()) return;
+  if (Date.now() < updateSnoozedUntil()) return;
+  try {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 6000);
+    let res: Response;
+    try {
+      res = await fetch(UPDATE_CHECK_URL, {
+        headers: { Accept: "application/vnd.github+json" },
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timer);
+    }
+    if (!res.ok) return;
+    const data = (await res.json()) as { tag_name?: string; html_url?: string };
+    const latest = (data.tag_name || "").replace(/^v/i, "").trim();
+    if (!latest || !/^\d+(\.\d+)*$/.test(latest)) return;
+    if (compareVersions(latest, APP_VERSION) > 0) {
+      showUpdateToast(latest, data.html_url || UPDATE_FALLBACK_URL);
+    }
+  } catch {
+    /* offline, rate-limited, or blocked — skip silently */
+  }
+}
+
 function wire() {
   document.documentElement.classList.toggle("is-mac", isMacPlatform());
   applyThemePref(loadThemePref());
   wireTitlebar();
   wireTabs();
+  wireUpdateToast();
   themeMedia.addEventListener("change", () => {
     if (themePref === "auto") applyThemePref("auto");
   });
@@ -3928,6 +4013,7 @@ function wire() {
   else listenHtmlDrop();
 
   void restoreLastDocument();
+  window.setTimeout(() => void checkForUpdate(), 1500);
 }
 
 wire();

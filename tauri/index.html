@@ -262,6 +262,14 @@
         </div>
       </form>
     </div>
+    <div class="update-toast" id="update-toast" hidden role="status" aria-live="polite">
+      <p class="update-toast-title">Update available</p>
+      <p class="update-toast-msg" id="update-toast-msg"></p>
+      <div class="update-toast-actions">
+        <button type="button" class="btn ghost" id="update-toast-dismiss">Dismiss</button>
+        <button type="button" class="btn" id="update-toast-view">View release</button>
+      </div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
