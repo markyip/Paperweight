@@ -1259,8 +1259,8 @@ function renderEpubToc(entries: EpubTocEntry[], parent: HTMLElement) {
     btn.type = "button";
     btn.className = "link";
     btn.textContent = entry.title || "Untitled";
-    const page = spineToPage(entry.spineIndex);
-    btn.addEventListener("click", () => goToPage(page));
+    const spineIndex = entry.spineIndex;
+    btn.addEventListener("click", () => goToPage(spineToPage(spineIndex)));
     li.append(btn);
     roots[roots.length - 1].append(li);
   }
