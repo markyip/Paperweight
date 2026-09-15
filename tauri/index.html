@@ -9,8 +9,10 @@
   </head>
   <body>
     <header class="titlebar" id="titlebar">
-      <div class="titlebar-drag" id="titlebar-drag" data-tauri-drag-region></div>
+      <div class="titlebar-drag titlebar-drag-start" data-tauri-drag-region></div>
+      <div class="titlebar-tabs" id="titlebar-tabs" hidden role="tablist" aria-label="Open documents"></div>
       <h1 class="titlebar-title" id="titlebar-title" data-tauri-drag-region>Paperweight</h1>
+      <div class="titlebar-drag" id="titlebar-drag" data-tauri-drag-region></div>
       <div class="titlebar-controls">
         <button type="button" class="titlebar-btn" id="btn-win-min" title="Minimize" aria-label="Minimize">
           <svg viewBox="0 0 10 10" aria-hidden="true">
@@ -55,6 +57,7 @@
             id="file-open"
             type="file"
             accept=".pdf,.epub,application/pdf,application/epub+zip"
+            multiple
             hidden
           />
           <div class="pages" id="pages"></div>

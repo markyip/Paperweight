@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import * as pdfjs from "pdfjs-dist";
@@ -44,7 +45,7 @@ const LEGACY_THEME = "pageviewer.theme";
 const LEGACY_MEMORY = "pageviewer.memory";
 const LEGACY_LAYOUT = "pageviewer.layout";
 const EMPTY_DROP_HINT = "Drop a PDF or EPUB here, or click to open.";
-type OpenOptions = { quiet?: boolean };
+type OpenOptions = { quiet?: boolean; force?: boolean };
 
 type Memory = Record<string, { page: number; bookmarks: number[] }>;
 type ToolMode = "none" | "highlight" | "erase" | "comment";
@@ -56,8 +57,17 @@ const $ = <T extends HTMLElement>(id: string) =>
 
 const APP_TITLE = "Paperweight";
 
+const TAB_DRAG_MIME = "application/x-paperweight-tab";
+const TAB_BOOT_PREFIX = "paperweight.boot.";
+const TAB_CLOSE_SVG =
+  '<svg viewBox="0 0 8 8" aria-hidden="true"><path d="M1.5 1.5l5 5M6.5 1.5l-5 5" /></svg>';
+
+type DocTab = { id: string; path: string; title: string; bytes?: Uint8Array };
+
 const ui = {
   app: $("app"),
+  titlebar: $("titlebar"),
+  titlebarTabs: $("titlebar-tabs"),
   titlebarTitle: $("titlebar-title"),
   winMin: $("btn-win-min") as HTMLButtonElement,
   winMax: $("btn-win-max") as HTMLButtonElement,
@@ -128,6 +138,12 @@ let epubBook: EpubBook | null = null;
 let epubPages: EpubPage[] = [];
 let epubBlobs: string[] = [];
 let filePath = "";
+let tabs: DocTab[] = [];
+let activeTabId = "";
+let tabSeq = 0;
+let loadGen = 0;
+let tabDragId = "";
+let tabDropConsumed = false;
 let scale = 1;
 const SCALE_MIN = 0.05;
 const SCALE_MAX = 3;
@@ -146,8 +162,8 @@ const EPUB_FONT_LAYOUT_MS = 220;
 const EPUB_MEASURE_MIN_CH = 60;
 const EPUB_MEASURE_MAX_CH = 75;
 const EPUB_PAD_X = 64;
-/** Keep the next 2-up row below the fold; matches `.hud-bottom` height. */
-const EPUB_ROW_GAP_PX = 72;
+/** Space between EPUB page cards. */
+const EPUB_ROW_GAP_PX = 16;
 let epubFontPx = EPUB_FONT_DEFAULT;
 let epubFontLayoutTimer = 0;
 let epubFontLayoutBusy = false;
@@ -318,6 +334,292 @@ function normalizeFsPath(path: string): string {
   }
   if (p.startsWith("\\\\?\\")) p = p.slice(4);
   return p;
+}
+
+function samePath(a: string, b: string): boolean {
+  const na = normalizeFsPath(a).replace(/\\/g, "/").toLowerCase();
+  const nb = normalizeFsPath(b).replace(/\\/g, "/").toLowerCase();
+  return Boolean(na) && na === nb;
+}
+
+function currentWindowLabel(): string {
+  try {
+    return getCurrentWindow().label || "main";
+  } catch {
+    return "main";
+  }
+}
+
+function isMainWindow(): boolean {
+  return currentWindowLabel() === "main";
+}
+
+function bootOpenPath(): string {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const direct = q.get("open");
+    if (direct) return normalizeFsPath(direct);
+    const label = q.get("w");
+    if (!label) return "";
+    const key = `${TAB_BOOT_PREFIX}${label}`;
+    const stored = localStorage.getItem(key) || "";
+    localStorage.removeItem(key);
+    return normalizeFsPath(stored);
+  } catch {
+    return "";
+  }
+}
+
+function dedupePaths(paths: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of paths) {
+    const path = normalizeFsPath(raw);
+    if (!path || !isPdfOrEpub(path)) continue;
+    const key = path.replace(/\\/g, "/").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(path);
+  }
+  return out;
+}
+
+function findTabByPath(path: string): DocTab | undefined {
+  return tabs.find((t) => samePath(t.path, path));
+}
+
+function upsertTab(path: string, extra?: { title?: string; bytes?: Uint8Array }): DocTab {
+  const existing = findTabByPath(path);
+  if (existing) {
+    if (extra?.title) existing.title = extra.title;
+    if (extra?.bytes) existing.bytes = extra.bytes;
+    return existing;
+  }
+  const tab: DocTab = {
+    id: `t${++tabSeq}`,
+    path,
+    title: extra?.title || pathStem(path) || pathBasename(path) || APP_TITLE,
+    bytes: extra?.bytes,
+  };
+  tabs.push(tab);
+  return tab;
+}
+
+function renderTabs() {
+  const strip = ui.titlebarTabs;
+  const titlebar = ui.titlebar;
+  if (!strip || !titlebar) return;
+  const show = tabs.length > 0;
+  titlebar.classList.toggle("has-tabs", show);
+  strip.hidden = !show;
+  strip.replaceChildren();
+  if (!show) return;
+  for (const tab of tabs) {
+    const el = document.createElement("div");
+    el.className = "titlebar-tab";
+    el.classList.toggle("is-active", tab.id === activeTabId);
+    el.classList.toggle("is-dragging", tab.id === tabDragId);
+    el.dataset.tabId = tab.id;
+    el.draggable = true;
+    el.setAttribute("role", "tab");
+    el.setAttribute("aria-selected", tab.id === activeTabId ? "true" : "false");
+    el.title = tab.title;
+    const label = document.createElement("span");
+    label.className = "titlebar-tab-label";
+    label.textContent = tab.title;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "titlebar-tab-close";
+    close.title = "Close";
+    close.setAttribute("aria-label", `Close ${tab.title}`);
+    close.innerHTML = TAB_CLOSE_SVG;
+    close.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      void closeTab(tab.id);
+    });
+    close.addEventListener("pointerdown", (e) => e.stopPropagation());
+    el.append(label, close);
+    el.addEventListener("click", () => {
+      void activateTab(tab.id);
+    });
+    el.addEventListener("auxclick", (e) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        void closeTab(tab.id);
+      }
+    });
+    el.addEventListener("dragstart", (e) => {
+      tabDragId = tab.id;
+      tabDropConsumed = false;
+      e.dataTransfer?.setData(TAB_DRAG_MIME, tab.id);
+      e.dataTransfer?.setData("text/plain", tab.path);
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      el.classList.add("is-dragging");
+    });
+    el.addEventListener("dragend", (e) => {
+      el.classList.remove("is-dragging");
+      const id = tabDragId;
+      const consumed = tabDropConsumed;
+      tabDragId = "";
+      tabDropConsumed = false;
+      renderTabs();
+      if (!consumed && id) void maybeDetachTab(id, e);
+    });
+    strip.append(el);
+  }
+}
+
+function tabInsertIndex(clientX: number): number {
+  const items = [...ui.titlebarTabs.querySelectorAll<HTMLElement>(".titlebar-tab")];
+  for (let i = 0; i < items.length; i++) {
+    const r = items[i].getBoundingClientRect();
+    if (clientX < r.left + r.width / 2) return i;
+  }
+  return items.length;
+}
+
+function moveTabTo(id: string, index: number) {
+  const from = tabs.findIndex((t) => t.id === id);
+  if (from < 0) return;
+  const [tab] = tabs.splice(from, 1);
+  let to = index;
+  if (from < to) to -= 1;
+  tabs.splice(Math.max(0, Math.min(to, tabs.length)), 0, tab);
+  renderTabs();
+}
+
+function pointerOutsideWindow(e: DragEvent): boolean {
+  const x = e.screenX;
+  const y = e.screenY;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return false;
+  const pad = 6;
+  return (
+    x < window.screenX - pad ||
+    y < window.screenY - pad ||
+    x > window.screenX + window.outerWidth + pad ||
+    y > window.screenY + window.outerHeight + pad
+  );
+}
+
+async function spawnDocWindow(path: string, screenX?: number, screenY?: number): Promise<void> {
+  const label = `doc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  try {
+    localStorage.setItem(`${TAB_BOOT_PREFIX}${label}`, path);
+  } catch {
+    /* quota */
+  }
+  const opts: Record<string, unknown> = {
+    url: `index.html?w=${encodeURIComponent(label)}`,
+    title: pathBasename(path) || APP_TITLE,
+    width: 1200,
+    height: 800,
+    minWidth: 720,
+    minHeight: 480,
+    decorations: false,
+    dragDropEnabled: true,
+    theme: "dark",
+    backgroundColor: "#111113",
+    focus: true,
+  };
+  if (Number.isFinite(screenX) && Number.isFinite(screenY)) {
+    opts.x = Math.round((screenX as number) - 72);
+    opts.y = Math.round((screenY as number) - 20);
+  }
+  const webview = new WebviewWindow(label, opts as ConstructorParameters<typeof WebviewWindow>[1]);
+  await new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error("window timeout")), 8000);
+    void webview.once("tauri://created", () => {
+      window.clearTimeout(timer);
+      resolve();
+    });
+    void webview.once("tauri://error", (event) => {
+      window.clearTimeout(timer);
+      try {
+        localStorage.removeItem(`${TAB_BOOT_PREFIX}${label}`);
+      } catch {
+        /* ignore */
+      }
+      reject(event);
+    });
+  });
+}
+
+async function maybeDetachTab(id: string, e: DragEvent) {
+  if (!inTauri()) return;
+  const tab = tabs.find((t) => t.id === id);
+  if (!tab || !isNativeFsPath(tab.path)) return;
+  if (!pointerOutsideWindow(e)) return;
+  try {
+    await spawnDocWindow(tab.path, e.screenX, e.screenY);
+  } catch {
+    return;
+  }
+  await closeTab(id);
+}
+
+async function activateTab(id: string) {
+  const tab = tabs.find((t) => t.id === id);
+  if (!tab) return;
+  if (tab.id === activeTabId && hasDoc() && samePath(filePath, tab.path)) {
+    renderTabs();
+    return;
+  }
+  persistCurrentPage();
+  if (tab.bytes) {
+    await openDocument(tab.path, tab.bytes, { quiet: true });
+    return;
+  }
+  await openPath(tab.path, { quiet: true, force: true });
+}
+
+async function closeTab(id: string) {
+  const index = tabs.findIndex((t) => t.id === id);
+  if (index < 0) return;
+  const wasActive = tabs[index].id === activeTabId;
+  tabs.splice(index, 1);
+  if (!wasActive) {
+    renderTabs();
+    return;
+  }
+  if (!tabs.length) {
+    activeTabId = "";
+    loadGen += 1;
+    await unloadDocument();
+    showEmptyChrome();
+    renderTabs();
+    if (!isMainWindow()) nativeWin((win) => win.close());
+    return;
+  }
+  const next = tabs[Math.min(index, tabs.length - 1)];
+  await activateTab(next.id);
+}
+
+function wireTabs() {
+  const strip = ui.titlebarTabs;
+  strip.addEventListener("dragover", (e) => {
+    if (!tabDragId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  });
+  strip.addEventListener("drop", (e) => {
+    if (!tabDragId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    tabDropConsumed = true;
+    moveTabTo(tabDragId, tabInsertIndex(e.clientX));
+  });
+  window.addEventListener("dragover", (e) => {
+    if (!tabDragId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  });
+  window.addEventListener("drop", (e) => {
+    if (!tabDragId) return;
+    e.preventDefault();
+    tabDropConsumed = true;
+  });
 }
 
 function toUint8Array(raw: unknown): Uint8Array {
@@ -760,7 +1062,24 @@ function scrollSlotToStage(page: number) {
     if (!slot || !ui.stage.contains(slot)) return;
     const row = slot.parentElement;
     const target = row?.classList.contains("page-row") ? row : slot;
-    ui.stage.scrollTop = Math.max(0, target.offsetTop);
+    const viewH = ui.stage.clientHeight;
+    const viewW = ui.stage.clientWidth;
+    const rowH = target.offsetHeight;
+    const minTop = columns === 0 ? 16 : 24;
+    const minBottom = 16;
+    const extra =
+      !scrollSnap && rowH > 0 && rowH + 8 < viewH
+        ? Math.max(0, Math.floor((viewH - rowH) / 2))
+        : 0;
+    ui.pages.style.setProperty("--pages-pad-top", `${Math.max(minTop, extra)}px`);
+    ui.pages.style.setProperty("--pages-pad-bottom", `${Math.max(minBottom, extra)}px`);
+    const top =
+      extra > minTop
+        ? Math.max(0, target.offsetTop - extra)
+        : Math.max(0, target.offsetTop);
+    ui.stage.scrollTop = top;
+    const extraX = ui.stage.scrollWidth - viewW;
+    ui.stage.scrollLeft = extraX > 1 ? extraX / 2 : 0;
   };
   apply();
   requestAnimationFrame(() => {
@@ -1366,8 +1685,8 @@ const GUTTER_FRACTION = 0.03;
 const GAP_PX = 16;
 /** Matches `.pages` horizontal padding (`--pages-pad-x`). */
 const EDGE_PX = 16;
-/** Matches `.pages` `--pages-pad-bottom` (72px HUD + 16px air). */
-const PAGES_PAD_BOTTOM_PX = 88;
+/** Matches `.pages` `--pages-pad-bottom`. */
+const PAGES_PAD_BOTTOM_PX = 16;
 
 function pagesPadTopPx(): number {
   return columns === 0 ? 16 : 24;
@@ -1425,7 +1744,7 @@ function epubSlotMetrics(cols: number): { slotW: number; pageH: number } {
   if (pinnedEpubMetrics) return pinnedEpubMetrics;
   const { innerW } = stageInner();
   const padTop = columns === 0 ? 16 : 24;
-  const pageH = Math.max(280, ui.stage.clientHeight - padTop - EPUB_ROW_GAP_PX);
+  const pageH = Math.max(280, ui.stage.clientHeight - padTop - PAGES_PAD_BOTTOM_PX);
   if (columns === 0) {
     const maxSlot = EPUB_MEASURE_MAX_CH * epubChPx(epubFontPx) + EPUB_PAD_X;
     const share = (innerW - GAP_PX * Math.max(0, cols - 1)) / Math.max(1, cols);
@@ -1588,7 +1907,7 @@ function fillEpubSlot(slot: HTMLElement, page: EpubPage, pageHeight: number) {
   }
   const sliceH = Math.max(
     1,
-    Math.min(Math.floor(pageHeight), Math.ceil(page.sliceHeight || pageHeight)),
+    Math.min(Math.floor(pageHeight) + 8, Math.round(page.sliceHeight || pageHeight)),
   );
   inner.style.transform = `translateY(-${Math.round(page.offset)}px)`;
   const clip = document.createElement("div");
@@ -1654,6 +1973,8 @@ async function layoutPages(anchor?: ViewAnchor, opts?: { preserveZoom?: boolean 
   };
   try {
     ui.pages.classList.toggle("auto-fit", columns === 0);
+    ui.pages.style.removeProperty("--pages-pad-top");
+    ui.pages.style.removeProperty("--pages-pad-bottom");
     let width = "100px";
     let height = "140px";
     let cols = 1;
@@ -1681,10 +2002,14 @@ async function layoutPages(anchor?: ViewAnchor, opts?: { preserveZoom?: boolean 
       }
       const { slotW, pageH } = epubSlotMetrics(cols);
       applyEpubFontToDom(epubFontPx);
+      ui.pages.style.setProperty(
+        "--epub-media-max-h",
+        `${Math.max(80, Math.floor(pageH) - 68)}px`,
+      );
       try {
         const prioritySpine =
           pendingEpubAnchor?.spine ?? epubPages[(currentPage || 1) - 1]?.spine;
-        epubPages = paginateEpub(epubBook, slotW, pageH, epubFontPx, {
+        epubPages = await paginateEpub(epubBook, slotW, pageH, epubFontPx, {
           prioritySpine,
         });
       } catch {
@@ -2232,7 +2557,7 @@ function onPagesPointerUp(e: PointerEvent) {
   void persistMarks();
 }
 
-async function closeDoc() {
+async function unloadDocument() {
   window.clearTimeout(epubFontLayoutTimer);
   epubFontLayoutTimer = 0;
   window.clearTimeout(persistPageTimer);
@@ -2263,7 +2588,12 @@ async function closeDoc() {
   hideSelMenu();
   hidePasswordPrompt();
   ui.pages.replaceChildren();
+  ui.pages.style.removeProperty("--pages-pad-top");
+  ui.pages.style.removeProperty("--pages-pad-bottom");
   tocHasEntries = false;
+}
+
+function showEmptyChrome() {
   ui.app.classList.remove("has-doc", "sidebar-open");
   ui.stage.classList.remove("has-doc");
   closeSidebar();
@@ -2372,44 +2702,67 @@ async function openDocument(path: string, data: Uint8Array, opts?: OpenOptions) 
   }
   const bytes = new Uint8Array(data.byteLength);
   bytes.set(data);
-  await closeDoc();
+  persistCurrentPage();
+  const tab = upsertTab(path, isNativeFsPath(path) ? undefined : { bytes });
+  const gen = ++loadGen;
+  activeTabId = tab.id;
+  renderTabs();
+  await unloadDocument();
+  if (gen !== loadGen) return;
   filePath = path;
   try {
     if (lower.endsWith(".epub")) {
       const opened = await openEpub(bytes);
+      if (gen !== loadGen) {
+        revokeBlobs(opened.blobs);
+        return;
+      }
       epubBook = opened.book;
       epubBlobs = opened.blobs;
       renderEpubToc(epubBook.toc, ui.tocList);
     } else {
       const doc = await openPdfDocument(bytes);
+      if (gen !== loadGen) {
+        await doc?.cleanup();
+        return;
+      }
       if (!doc) {
-        await closeDoc();
+        await closeTab(tab.id);
         return;
       }
       pdf = doc;
       const outline = await pdf.getOutline();
+      if (gen !== loadGen) return;
       renderPdfToc(outline, ui.tocList);
     }
   } catch (err) {
     hidePasswordPrompt();
+    if (gen !== loadGen) return;
     if (err instanceof EpubError && err.kind === "drm") {
       hintOrQuiet(opts, "Password-locked or DRM-protected EPUB will not open.");
+      await closeTab(tab.id);
       return;
     }
     hintOrQuiet(
       opts,
       lower.endsWith(".epub") ? "Could not open that EPUB." : "Could not open that PDF.",
     );
+    await closeTab(tab.id);
     return;
   }
+  if (gen !== loadGen) return;
   fileMarks = await marksFor(path);
+  if (gen !== loadGen) return;
   ui.app.classList.add("has-doc");
   ui.stage.classList.add("has-doc");
+  tab.title = documentCaption();
+  renderTabs();
   syncCaptionTitle();
   renderBookmarks();
   try {
     await layoutPages({ page: fileMemory().page || 1 });
   } catch {
+    if (gen !== loadGen) return;
     hintOrQuiet(
       opts,
       lower.endsWith(".epub") ? "Could not display that EPUB." : "Could not display that PDF.",
@@ -2418,6 +2771,7 @@ async function openDocument(path: string, data: Uint8Array, opts?: OpenOptions) 
     ui.stage.classList.remove("has-doc");
     return;
   }
+  if (gen !== loadGen) return;
   setPageLabel();
   rememberLastPath(path);
 }
@@ -2427,6 +2781,17 @@ async function openPath(path: string, opts?: OpenOptions) {
   if (!isPdfOrEpub(normalized)) {
     hintOrQuiet(opts, "Drop a PDF or EPUB file.");
     return;
+  }
+  if (!opts?.force) {
+    const existing = findTabByPath(normalized);
+    if (existing && existing.id === activeTabId && hasDoc()) {
+      renderTabs();
+      return;
+    }
+    if (existing && existing.id !== activeTabId) {
+      await activateTab(existing.id);
+      return;
+    }
   }
   let data: Uint8Array;
   try {
@@ -2438,8 +2803,35 @@ async function openPath(path: string, opts?: OpenOptions) {
   await openDocument(normalized, data, opts);
 }
 
+async function openMany(paths: string[], opts?: OpenOptions) {
+  const unique = dedupePaths(paths);
+  if (!unique.length) return;
+  unique.forEach((p) => upsertTab(p));
+  renderTabs();
+  await openPath(unique[unique.length - 1], opts);
+}
+
 async function restoreLastDocument() {
   if (!inTauri()) return;
+  const fromQuery = bootOpenPath();
+  if (fromQuery) {
+    if (await lastPathStillThere(fromQuery)) await openPath(fromQuery, { quiet: true });
+    return;
+  }
+  try {
+    const launched = await invoke<string[]>("launch_paths");
+    const existing: string[] = [];
+    for (const raw of launched || []) {
+      const path = normalizeFsPath(String(raw || ""));
+      if (path && isPdfOrEpub(path) && (await lastPathStillThere(path))) existing.push(path);
+    }
+    if (existing.length) {
+      await openMany(existing, { quiet: true });
+      return;
+    }
+  } catch {
+    /* missing command */
+  }
   const path = await readLastPath();
   if (!path) return;
   if (!(await lastPathStillThere(path))) return;
@@ -2464,16 +2856,33 @@ async function openFromFile(file: File) {
   }
 }
 
+async function openFiles(files: File[]) {
+  const list = files.filter((f) => isPdfOrEpub(f.name || ""));
+  if (!list.length) {
+    setEmptyHint("Drop a PDF or EPUB file.");
+    return;
+  }
+  const native = list
+    .map((f) => String((f as File & { path?: string }).path || ""))
+    .filter((p) => isNativeFsPath(p));
+  if (native.length === list.length) {
+    await openMany(native);
+    return;
+  }
+  for (const file of list) await openFromFile(file);
+}
+
 async function pickAndOpen() {
   if (inTauri()) {
     try {
       const selected = await openDialog({
-        multiple: false,
+        multiple: true,
         title: "Open",
         filters: [{ name: "PDF or EPUB", extensions: ["pdf", "epub"] }],
       });
-      const path = Array.isArray(selected) ? selected[0] : selected;
-      if (path) await openPath(path);
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      await openMany(paths);
       return;
     } catch {
       /* fall through to the hidden file input */
@@ -2483,6 +2892,7 @@ async function pickAndOpen() {
 }
 
 function isFileDrag(e: DragEvent): boolean {
+  if (tabDragId) return false;
   return Boolean(e.dataTransfer?.types?.includes("Files"));
 }
 
@@ -2504,8 +2914,8 @@ function listenHtmlDrop() {
     if (!isFileDrag(e)) return;
     e.preventDefault();
     ui.app.classList.remove("dragover");
-    const file = e.dataTransfer?.files[0];
-    if (file) void openFromFile(file);
+    const files = [...(e.dataTransfer?.files || [])];
+    if (files.length) void openFiles(files);
   });
 }
 
@@ -2515,8 +2925,8 @@ function listenTauriDrop() {
     ui.app.classList.toggle("dragover", type === "enter" || type === "over");
     if (type === "leave" || type === "drop") ui.app.classList.remove("dragover");
     if (type === "drop") {
-      const dropPath = event.payload.paths?.[0];
-      if (dropPath) void openPath(dropPath);
+      const paths = (event.payload.paths || []).filter((p) => isPdfOrEpub(p));
+      if (paths.length) void openMany(paths);
     }
   };
   try {
@@ -3218,6 +3628,7 @@ function wireColorWell() {
 function wire() {
   applyThemePref(loadThemePref());
   wireTitlebar();
+  wireTabs();
   themeMedia.addEventListener("change", () => {
     if (themePref === "auto") applyThemePref("auto");
   });
@@ -3489,9 +3900,9 @@ function wire() {
 
   ui.empty.addEventListener("click", () => void pickAndOpen());
   ui.fileOpen.addEventListener("change", () => {
-    const file = ui.fileOpen.files?.[0];
+    const files = [...(ui.fileOpen.files || [])];
     ui.fileOpen.value = "";
-    if (file) void openFromFile(file);
+    if (files.length) void openFiles(files);
   });
 
   let resizeTimer = 0;

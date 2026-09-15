@@ -3,7 +3,8 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": [
-    "main"
+    "main",
+    "doc-*"
   ],
   "permissions": [
     "core:default",
@@ -15,6 +16,10 @@
     "core:window:allow-set-fullscreen",
     "core:window:allow-set-theme",
     "core:window:allow-set-background-color",
+    "core:window:allow-create",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-position",
+    "core:webview:allow-create-webview-window",
     "core:webview:allow-set-webview-background-color",
     "opener:default",
     "dialog:default",

@@ -80,6 +80,11 @@ html[data-fullscreen="1"] .titlebar {
   min-width: 0;
 }
 
+.titlebar-drag-start {
+  flex: 0 0 14px;
+  min-width: 14px;
+}
+
 .titlebar-title {
   position: absolute;
   inset: 0;
@@ -95,7 +100,112 @@ html[data-fullscreen="1"] .titlebar {
   pointer-events: none;
 }
 
+.titlebar.has-tabs .titlebar-title {
+  display: none;
+}
+
+.titlebar-tabs {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: stretch;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(100% - 168px);
+  height: 100%;
+  padding: 3px 0;
+  gap: 2px;
+}
+
+.titlebar-tabs[hidden] {
+  display: none;
+}
+
+.titlebar-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 168px;
+  gap: 2px;
+  min-width: 72px;
+  max-width: 180px;
+  height: 100%;
+  padding: 0 4px 0 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.titlebar-tab:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+.titlebar-tab.is-active {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.titlebar-tab.is-active::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  bottom: 1px;
+  left: 8px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+}
+
+.titlebar-tab.is-dragging {
+  opacity: 0.4;
+}
+
+.titlebar-tab-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font: 600 12px / 1 "Segoe UI", "SF Pro Text", system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.titlebar-tab-close {
+  appearance: none;
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.titlebar-tab-close svg {
+  display: block;
+  width: 8px;
+  height: 8px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+
+.titlebar-tab-close:hover {
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
 .titlebar-controls {
+  position: relative;
+  z-index: 3;
   display: flex;
   flex-shrink: 0;
 }
@@ -314,8 +424,7 @@ button:focus:not(:focus-visible) {
 .pages {
   --pages-pad-top: 24px;
   --pages-pad-x: 16px;
-  /* Keep the next row below the 72px HUD; must match JS PAGES_PAD_BOTTOM_PX. */
-  --pages-pad-bottom: 88px;
+  --pages-pad-bottom: 16px;
   --page-gap: 16px;
   display: flex;
   flex-direction: column;
@@ -329,7 +438,7 @@ button:focus:not(:focus-visible) {
 }
 
 .pages.epub-flow {
-  gap: var(--epub-row-gap, 72px);
+  gap: var(--epub-row-gap, 16px);
 }
 
 .page-row {
@@ -337,6 +446,7 @@ button:focus:not(:focus-visible) {
   justify-content: center;
   align-items: flex-start;
   gap: var(--page-gap, 16px);
+  width: 100%;
   min-width: 0;
   isolation: isolate;
 }
@@ -656,9 +766,39 @@ mark.search-hit {
 }
 
 .epub-slot img,
-.epub-measure img {
+.epub-measure img,
+.epub-slot video,
+.epub-measure video,
+.epub-slot canvas,
+.epub-measure canvas {
+  display: block;
+  max-width: 100% !important;
+  max-height: var(--epub-media-max-h, 70vh) !important;
+  height: auto !important;
+  margin-inline: auto;
+  object-fit: contain;
+  object-position: center;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.epub-slot svg,
+.epub-measure svg {
+  display: block;
+  max-width: 100% !important;
+  max-height: var(--epub-media-max-h, 70vh) !important;
+  margin-inline: auto;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+
+.epub-slot figure,
+.epub-measure figure {
   max-width: 100%;
-  height: auto;
+  margin-inline: auto;
+  text-align: center;
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 
 .epub-slot a {

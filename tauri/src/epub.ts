@@ -524,17 +524,29 @@ export async function openEpub(bytes: Uint8Array): Promise<{
 let chapterInnerCache = new WeakMap<EpubChapter, HTMLElement>();
 let measureHost: HTMLDivElement | null = null;
 
+/** Matches `.epub-inner` padding `28px 32px 40px`. */
+const EPUB_INNER_PAD_Y = 68;
+
+function usesViewportLength(value: string): boolean {
+  return /vh|vw|dvh|svh|lvh|dvw|svw|lvw/i.test(value);
+}
+
 function neutralizeEpubChrome(root: HTMLElement) {
   for (const el of root.querySelectorAll<HTMLElement>("*")) {
     const pos = (el.style.position || "").toLowerCase();
-    if (pos !== "fixed" && pos !== "sticky") continue;
-    el.style.position = "relative";
-    el.style.top = "auto";
-    el.style.left = "auto";
-    el.style.right = "auto";
-    el.style.bottom = "auto";
-    el.style.inset = "auto";
-    el.style.zIndex = "auto";
+    if (pos === "fixed" || pos === "sticky") {
+      el.style.position = "relative";
+      el.style.top = "auto";
+      el.style.left = "auto";
+      el.style.right = "auto";
+      el.style.bottom = "auto";
+      el.style.inset = "auto";
+      el.style.zIndex = "auto";
+    }
+    if (usesViewportLength(el.style.height)) el.style.height = "auto";
+    if (usesViewportLength(el.style.minHeight)) el.style.minHeight = "0";
+    if (usesViewportLength(el.style.maxHeight)) el.style.maxHeight = "";
+    if (usesViewportLength(el.style.width)) el.style.width = "100%";
   }
 }
 
@@ -569,37 +581,64 @@ function getMeasureHost(): HTMLDivElement {
   return measureHost;
 }
 
-function lineBottoms(inner: HTMLElement, height: number): number[] {
-  try {
-    const origin = inner.getBoundingClientRect().top;
+type BoxY = { top: number; bottom: number };
+
+function collectFlowBoxes(
+  inner: HTMLElement,
+  height: number,
+): { bottoms: number[]; lines: BoxY[] } {
+  const origin = inner.getBoundingClientRect().top;
+  const lines: BoxY[] = [];
+  const bottoms: number[] = [];
+
+  const pushLine = (top: number, bottom: number) => {
+    if (bottom - top < 2) return;
+    if (bottom <= 0 || top >= height) return;
+    const box = {
+      top: Math.max(0, top),
+      bottom: Math.min(height, bottom),
+    };
+    lines.push(box);
+    bottoms.push(box.bottom);
+  };
+
+  const walker = document.createTreeWalker(inner, NodeFilter.SHOW_TEXT);
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    if (!node.nodeValue?.trim()) continue;
     const range = document.createRange();
-    range.selectNodeContents(inner);
-    const rects = range.getClientRects();
-    const bottoms: number[] = [];
-    let prev = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const bottom = rects[i].bottom - origin;
-      if (bottom > prev + 0.5 && bottom <= height + 8) {
-        bottoms.push(bottom);
-        prev = bottom;
-      }
+    range.selectNodeContents(node);
+    for (const rect of Array.from(range.getClientRects())) {
+      pushLine(rect.top - origin, rect.bottom - origin);
     }
-    if (!bottoms.length || bottoms[bottoms.length - 1] < height - 1) {
-      bottoms.push(height);
-    }
-    return bottoms;
-  } catch {
-    return [height];
   }
+
+  for (const el of inner.querySelectorAll<HTMLElement>(
+    "p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, figcaption, dt, dd",
+  )) {
+    const r = el.getBoundingClientRect();
+    bottoms.push(Math.min(height, r.bottom - origin));
+  }
+
+  lines.sort((a, b) => a.top - b.top || a.bottom - b.bottom);
+  bottoms.sort((a, b) => a - b);
+  const uniq: number[] = [];
+  for (const b of bottoms) {
+    if (b <= 0.5 || b > height + 8) continue;
+    if (!uniq.length || b > uniq[uniq.length - 1] + 0.5) uniq.push(b);
+  }
+  if (!uniq.length || uniq[uniq.length - 1] < height - 1) uniq.push(height);
+  return { bottoms: uniq, lines };
 }
 
 function slicesForChapter(
   height: number,
   slice: number,
   bottoms: number[],
+  unsplittable: BoxY[] = [],
 ): { offset: number; sliceHeight: number }[] {
   const h = Math.max(1, Math.round(height));
-  const page = Math.max(120, Math.round(slice));
+  const page = Math.max(120, Math.round(slice) - 8);
   const out: { offset: number; sliceHeight: number }[] = [];
   let y = 0;
   let i = 0;
@@ -610,6 +649,20 @@ function slicesForChapter(
     if (i > 0 && bottoms[i - 1] > y + 4) {
       end = Math.min(h, Math.round(bottoms[i - 1]));
     }
+    const cut = unsplittable.find(
+      (b) => b.top < end - 0.5 && b.bottom > end + 0.5 && b.bottom - b.top > 4,
+    );
+    if (cut) {
+      if (cut.top > y + 8) {
+        end = Math.min(h, Math.round(cut.top));
+      } else if (cut.bottom <= y + page + 8) {
+        end = Math.min(h, Math.max(end, Math.round(cut.bottom)));
+      }
+    }
+    if (end <= y) {
+      const nextBox = unsplittable.find((b) => b.top > y + 1);
+      end = nextBox ? Math.min(limit, Math.max(y + 1, Math.round(nextBox.top))) : limit;
+    }
     if (end <= y) end = limit;
     const sliceHeight = Math.max(1, end - y);
     out.push({ offset: y, sliceHeight });
@@ -619,37 +672,89 @@ function slicesForChapter(
   return out.length ? out : [{ offset: 0, sliceHeight: page }];
 }
 
-function measureChapter(
+async function measureChapter(
   host: HTMLElement,
   ch: EpubChapter,
   fontPx: number,
-): { height: number; bottoms: number[] } {
+): Promise<{ height: number; bottoms: number[]; media: BoxY[] }> {
   const inner = chapterInnerEl(ch);
   inner.style.fontSize = `${fontPx}px`;
   inner.style.setProperty("--epub-font-px", `${fontPx}px`);
   inner.style.transform = "";
   host.replaceChildren(inner);
+  await waitForMedia(inner);
   void host.offsetHeight;
   const height = Math.max(1, host.scrollHeight);
-  return { height, bottoms: lineBottoms(inner, height) };
+  const flow = collectFlowBoxes(inner, height);
+  return {
+    height,
+    bottoms: flow.bottoms,
+    media: [...mediaBoxes(inner, height), ...flow.lines],
+  };
 }
 
-export function paginateEpub(
+function mediaBoxes(inner: HTMLElement, height: number): BoxY[] {
+  const origin = inner.getBoundingClientRect().top;
+  const boxes: BoxY[] = [];
+  for (const el of inner.querySelectorAll<HTMLElement>("img, svg, video, canvas, figure")) {
+    const r = el.getBoundingClientRect();
+    const top = r.top - origin;
+    const bottom = r.bottom - origin;
+    if (bottom - top < 8) continue;
+    if (bottom <= 0 || top >= height) continue;
+    boxes.push({
+      top: Math.max(0, top),
+      bottom: Math.min(height, bottom),
+    });
+  }
+  boxes.sort((a, b) => a.top - b.top || a.bottom - b.bottom);
+  return boxes;
+}
+
+function waitForMedia(root: HTMLElement): Promise<void> {
+  const imgs = [...root.querySelectorAll("img")];
+  if (!imgs.length) return Promise.resolve();
+  const ready = Promise.all(
+    imgs.map((img) => {
+      if (img.complete && img.naturalHeight > 0) return Promise.resolve();
+      return img
+        .decode()
+        .catch(
+          () =>
+            new Promise<void>((resolve) => {
+              img.addEventListener("load", () => resolve(), { once: true });
+              img.addEventListener("error", () => resolve(), { once: true });
+            }),
+        );
+    }),
+  ).then(() => undefined);
+  return Promise.race([
+    ready,
+    new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 4000);
+    }),
+  ]);
+}
+
+export async function paginateEpub(
   book: EpubBook,
   pageWidth: number,
   pageHeight: number,
   fontPx: number,
   opts?: { prioritySpine?: number },
-): EpubPage[] {
+): Promise<EpubPage[]> {
   const clamped = Math.max(14, Math.min(28, fontPx));
   const slice = Math.max(120, pageHeight);
+  const mediaMax = Math.max(80, Math.round(pageHeight) - EPUB_INNER_PAD_Y);
   const host = getMeasureHost();
   host.style.width = `${Math.max(160, pageWidth)}px`;
   host.style.fontSize = `${clamped}px`;
   host.style.setProperty("--epub-font-px", `${clamped}px`);
+  host.style.setProperty("--epub-media-max-h", `${mediaMax}px`);
   const n = book.chapters.length;
   const heights = new Array<number>(n);
   const breaks = new Array<number[]>(n);
+  const media = new Array<BoxY[]>(n);
   const seen = new Set<number>();
   const order: number[] = [];
   const push = (i: number) => {
@@ -666,9 +771,10 @@ export function paginateEpub(
   for (let i = 0; i < n; i++) push(i);
   try {
     for (const i of order) {
-      const measured = measureChapter(host, book.chapters[i], clamped);
+      const measured = await measureChapter(host, book.chapters[i], clamped);
       heights[i] = measured.height;
       breaks[i] = measured.bottoms;
+      media[i] = measured.media;
     }
   } finally {
     host.replaceChildren();
@@ -677,7 +783,12 @@ export function paginateEpub(
   for (let i = 0; i < n; i++) {
     const ch = book.chapters[i];
     const height = heights[i] || 1;
-    const slices = slicesForChapter(height, slice, breaks[i] || [height]);
+    const slices = slicesForChapter(
+      height,
+      slice,
+      breaks[i] || [height],
+      media[i] || [],
+    );
     for (const piece of slices) {
       pages.push({
         spine: i,

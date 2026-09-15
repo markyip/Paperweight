@@ -16,8 +16,8 @@ Get a build from **Releases**. You do not need the source code.
 
 **Windows** (needs WebView2, already on most Windows 10/11 PCs)
 
-- **Portable:** `paperweight.exe` — double-click; put it on a USB stick if you like.
-- **Installer:** `Paperweight_*_x64-setup.exe` — Start menu shortcut and uninstall. Optional.
+- **Portable:** `paperweight.exe` — double-click; put it on a USB stick if you like. Portable builds cannot register as a default app.
+- **Installer:** `Paperweight_*_x64-setup.exe` — Start menu shortcut and uninstall. Optional. After install, set Paperweight as the default PDF or EPUB opener in **Settings → Apps → Default apps → Paperweight**, or right-click a file → **Open with**. Windows still asks you to pick Paperweight; the installer does not steal Explorer’s default (that would hide PDF thumbnails).
 
 **macOS**
 

@@ -16,8 +16,8 @@
 
 **Windows**（需要 WebView2，多數 Windows 10／11 已內建）
 
-- **Portable：** `paperweight.exe` — 雙擊就能用，也可以放 USB。
-- **安裝包：** `Paperweight_*_x64-setup.exe` — 開始功能表捷徑與解除安裝。可選。
+- **Portable：** `paperweight.exe` — 雙擊就能用，也可以放 USB。免安裝版無法登錄為預設應用程式。
+- **安裝包：** `Paperweight_*_x64-setup.exe` — 開始功能表捷徑與解除安裝。可選。安裝後可把 Paperweight 設成 PDF 或 EPUB 的預設開啟程式：**設定 → 應用程式 → 預設應用程式 → Paperweight**，或對檔案按右鍵 → **開啟方式**。仍須由你在 Windows 裡選定；安裝程式不會搶走檔案總管的預設（以免 PDF 縮圖消失）。
 
 **macOS**
 

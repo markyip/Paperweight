@@ -38,10 +38,33 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "fileAssociations": [
+      {
+        "name": "Paperweight.PDF",
+        "ext": ["pdf"],
+        "mimeType": "application/pdf",
+        "description": "PDF Document",
+        "role": "Viewer",
+        "rank": "Alternate"
+      },
+      {
+        "name": "Paperweight.EPUB",
+        "ext": ["epub"],
+        "mimeType": "application/epub+zip",
+        "description": "EPUB Document",
+        "role": "Viewer",
+        "rank": "Alternate"
+      }
+    ],
     "windows": {
       "nsis": {
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "windows/header.bmp",
+        "sidebarImage": "windows/sidebar.bmp",
+        "uninstallerHeaderImage": "windows/header.bmp",
+        "installerHooks": "windows/installer-hooks.nsh",
         "languages": ["English", "TradChinese"]
       }
     }

@@ -92,6 +92,35 @@ fn is_pdf_or_epub(path: &std::path::Path) -> bool {
     ext == "pdf" || ext == "epub"
 }
 
+/// CLI paths from Explorer "Open with" / file association. Skips argv[0] and flags.
+fn launch_document_paths<I, S>(args: I) -> Vec<PathBuf>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .skip(1)
+        .filter(|a| {
+            let s = a.as_ref().trim();
+            !s.is_empty() && !s.starts_with('-')
+        })
+        .map(|a| normalize_document_path(a.as_ref()))
+        .filter(|p| is_pdf_or_epub(p))
+        .collect()
+}
+
+#[tauri::command]
+fn launch_paths() -> Vec<String> {
+    let args: Vec<String> = std::env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
+    launch_document_paths(args)
+        .into_iter()
+        .filter(|p| p.is_file())
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
+}
+
 #[tauri::command]
 fn document_exists(path: String) -> bool {
     let p = normalize_document_path(&path);
@@ -210,6 +239,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             document_exists,
+            launch_paths,
             load_last_path,
             save_last_path,
             read_document,
@@ -223,7 +253,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{document_exists, normalize_document_path};
+    use super::{document_exists, launch_document_paths, normalize_document_path};
     use std::fs;
     use std::path::PathBuf;
 
@@ -259,6 +289,36 @@ mod tests {
         fs::write(&p, b"%PDF-1.1\n").unwrap();
         assert!(document_exists(p.to_string_lossy().into_owned()));
         let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn launch_paths_skip_exe_flags_and_non_docs() {
+        let got = launch_document_paths([
+            r"C:\Program Files\Paperweight\paperweight.exe",
+            "--flag",
+            "-something",
+            r"C:\Users\Mark\notes.txt",
+            r"C:\Users\Mark\Doc.pdf",
+            r"D:\book.epub",
+        ]);
+        assert_eq!(
+            got,
+            vec![
+                PathBuf::from(r"C:\Users\Mark\Doc.pdf"),
+                PathBuf::from(r"D:\book.epub"),
+            ]
+        );
+    }
+
+    #[test]
+    fn launch_paths_normalize_quoted_file_url() {
+        let got = launch_document_paths([
+            "paperweight.exe",
+            r#""file:///C:/Users/Mark/Doc.pdf""#,
+        ]);
+        let s = got[0].to_string_lossy();
+        assert!(s.contains("Doc.pdf"), "{s}");
+        assert!(!s.to_ascii_lowercase().starts_with("file:"), "{s}");
     }
 }
 
