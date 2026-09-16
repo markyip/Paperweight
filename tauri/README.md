@@ -27,12 +27,12 @@ Tauri only bundles targets for **the OS you are on**.
 **Windows**
 
 - Portable: `src-tauri/target/release/paperweight.exe` — cannot register as a default app.
-- Installer: `src-tauri/target/release/bundle/nsis/Paperweight_0.1.3_x64-setup.exe` — after install, set the default in Settings → Apps → Default apps → Paperweight, or Open with. The NSIS hooks restore the `.pdf` / `.epub` extension default so Explorer thumbnails stay intact.
+- Installer: `src-tauri/target/release/bundle/nsis/Paperweight_0.1.4_x64-setup.exe` — after install, set the default in Settings → Apps → Default apps → Paperweight, or Open with. The NSIS hooks restore the `.pdf` / `.epub` extension default so Explorer thumbnails stay intact.
 
 **macOS** (run the same command on a Mac)
 
 - App: `src-tauri/target/release/bundle/macos/Paperweight.app`
-- Disk image: `src-tauri/target/release/bundle/dmg/Paperweight_0.1.3_*.dmg`
+- Disk image: `src-tauri/target/release/bundle/dmg/Paperweight_0.1.4_*.dmg`
 
 You cannot produce a `.app` / `.dmg` from Windows.
 

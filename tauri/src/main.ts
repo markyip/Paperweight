@@ -60,7 +60,7 @@ const $ = <T extends HTMLElement>(id: string) =>
 
 const APP_TITLE = "Paperweight";
 /** Keep in sync with package.json / tauri.conf.json / Cargo.toml on version bumps. */
-const APP_VERSION = "0.1.3";
+const APP_VERSION = "0.1.4";
 const UPDATE_CHECK_URL = "https://api.github.com/repos/markyip/Paperweight/releases/latest";
 const UPDATE_FALLBACK_URL = "https://github.com/markyip/Paperweight/releases/latest";
 const UPDATE_SNOOZE_KEY = "paperweight.update.snoozeUntil";
