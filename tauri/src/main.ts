@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -24,6 +25,7 @@ import {
   MARK_COLOR_NAMES,
   MARK_COLORS,
   clipCommentText,
+  flushMarksStore,
   hexWithAlpha,
   markPageIndex,
   marksFor,
@@ -164,6 +166,13 @@ const PDF_CANVAS_MAX = 4096;
 const PDF_PAINT_MAX = 2;
 /** Keep this many rows of rasterized pages around the current page. */
 const PDF_KEEP_ROWS = 2;
+/**
+ * Same idea as PDF_KEEP_ROWS, but wider: each kept EPUB slot holds a full
+ * `cloneNode(true)` of its *chapter*, not just its own page, so crossing the
+ * boundary back and forth re-clones the whole chapter each time. A larger
+ * window makes that boundary rare during normal reading.
+ */
+const EPUB_KEEP_ROWS = 6;
 const EPUB_FONT_MIN = 14;
 const EPUB_FONT_MAX = 28;
 const EPUB_FONT_DEFAULT = 18;
@@ -208,6 +217,7 @@ const pdfRenderTasks = new Map<number, PdfRenderTask>();
 const pdfTextLayers = new Map<number, { cancel: () => void }>();
 let persistPageTimer = 0;
 let pdfPruneRaf = 0;
+let epubPruneRaf = 0;
 let fileMarks: FileMarks = { highlights: [], comments: [] };
 let tool: ToolMode = "none";
 let highlightColor: string = MARK_COLOR_DEFAULT;
@@ -605,7 +615,10 @@ async function closeTab(id: string) {
     await unloadDocument();
     showEmptyChrome();
     renderTabs();
-    if (!isMainWindow()) nativeWin((win) => win.close());
+    if (!isMainWindow()) {
+      flushMarksStore();
+      nativeWin((win) => win.close());
+    }
     return;
   }
   const next = tabs[Math.min(index, tabs.length - 1)];
@@ -847,6 +860,7 @@ function wireTitlebar() {
     });
   });
   ui.winClose.addEventListener("click", () => {
+    flushMarksStore();
     nativeWin((win) => win.close());
   });
   try {
@@ -1419,7 +1433,8 @@ function shouldKeepPdfPage(pageNumber: number): boolean {
   );
 }
 
-function pdfSlotBusy(slot: HTMLElement, page: number): boolean {
+/** Page/format-agnostic: a slot mid-gesture (drag, comment, selection) must not be reclaimed. */
+function slotBusy(slot: HTMLElement, page: number): boolean {
   if (drag?.page === page) return true;
   if (pendingComment?.page === page) return true;
   if (editingComment?.page === page) return true;
@@ -1480,7 +1495,7 @@ function pruneOffscreenPdfPages() {
     if (!Number.isFinite(n)) return;
     if (n >= keepFrom && n <= keepTo) return;
     if (intersectingPages.has(n)) return;
-    if (pdfSlotBusy(slot, n)) return;
+    if (slotBusy(slot, n)) return;
     releasePdfSlot(slot, n);
   });
   for (const n of [...paintWait]) {
@@ -1493,6 +1508,37 @@ function schedulePdfPrune() {
   pdfPruneRaf = requestAnimationFrame(() => {
     pdfPruneRaf = 0;
     pruneOffscreenPdfPages();
+  });
+}
+
+/** Each kept slot holds a full clone of its chapter (see fillEpubSlot) — release
+ * it outside the keep window so scrolling a long book doesn't pin every chapter
+ * it ever visited in memory at once. */
+function releaseEpubSlot(slot: HTMLElement) {
+  slot.querySelector(".page-body")?.replaceChildren();
+  delete slot.dataset.painted;
+}
+
+function pruneOffscreenEpubPages() {
+  if (!epubBook) return;
+  const cols = Math.max(1, layoutCols);
+  const keepFrom = Math.max(1, currentPage - cols * EPUB_KEEP_ROWS);
+  const keepTo = Math.min(pageCount(), currentPage + cols * EPUB_KEEP_ROWS);
+  ui.pages.querySelectorAll<HTMLElement>(".page-slot[data-painted='1']").forEach((slot) => {
+    const n = Number(slot.dataset.page);
+    if (!Number.isFinite(n)) return;
+    if (n >= keepFrom && n <= keepTo) return;
+    if (intersectingPages.has(n)) return;
+    if (slotBusy(slot, n)) return;
+    releaseEpubSlot(slot);
+  });
+}
+
+function scheduleEpubPrune() {
+  if (!epubBook || epubPruneRaf) return;
+  epubPruneRaf = requestAnimationFrame(() => {
+    epubPruneRaf = 0;
+    pruneOffscreenEpubPages();
   });
 }
 
@@ -1691,6 +1737,8 @@ function observeSlots() {
       if (changed && pdf) {
         ensureVisiblePdfText();
         schedulePdfPrune();
+      } else if (changed && epubBook) {
+        scheduleEpubPrune();
       }
     },
     { root: ui.stage, rootMargin: observerRootMargin(), threshold: 0 },
@@ -2090,6 +2138,7 @@ function goToPage(page: number) {
   scrollSlotToStage(n);
   paintNearbyPages(n);
   if (pdf) schedulePdfPrune();
+  else if (epubBook) scheduleEpubPrune();
   saveMemory((m) => {
     m[filePath].page = n;
   });
@@ -2961,6 +3010,20 @@ function listenTauriDrop() {
   }
 }
 
+/**
+ * macOS "Open With" on an already-running app arrives as an Apple Event, not a
+ * relaunch, so `launch_paths` (read once at boot) never sees it — the backend
+ * forwards it here instead.
+ */
+function listenOpenFiles() {
+  void listen<string[]>("open-files", (event) => {
+    const paths = (event.payload || []).filter((p) => isPdfOrEpub(p));
+    if (paths.length) void openMany(paths);
+  }).catch(() => {
+    /* missing event API */
+  });
+}
+
 function toggleTheme() {
   applyThemePref(THEME_NEXT[themePref]);
 }
@@ -3777,7 +3840,9 @@ function wire() {
   ui.pomoDismiss.addEventListener("click", dismissPomoBreak);
   document.addEventListener("visibilitychange", () => {
     if (pomoPhase !== "idle") tickPomo();
+    if (document.visibilityState === "hidden") flushMarksStore();
   });
+  window.addEventListener("pagehide", () => flushMarksStore());
   ui.print.addEventListener("click", () => {
     closeFabFlyout();
     void printDoc();
@@ -3958,16 +4023,29 @@ function wire() {
     setFabPanel("closed");
   });
 
+  // Trackpad pinch/ctrl+wheel can fire far faster than each tick's relayout can
+  // keep up with; coalesce deltas and apply at most once per frame (mirrors the
+  // scroll handler's rAF throttle below), instead of a full relayout per event.
+  let wheelZoomRaf = 0;
+  let wheelZoomDelta = 0;
   ui.stage.addEventListener(
     "wheel",
     (e) => {
       if (!(e.ctrlKey || e.metaKey) || !hasDoc()) return;
       e.preventDefault();
-      if (epubBook) {
-        void setEpubFontPx(epubFontPx + (e.deltaY < 0 ? EPUB_FONT_STEP : -EPUB_FONT_STEP));
-      } else {
-        void setScale(scale + (e.deltaY < 0 ? 0.1 : -0.1));
-      }
+      wheelZoomDelta += e.deltaY;
+      if (wheelZoomRaf) return;
+      wheelZoomRaf = requestAnimationFrame(() => {
+        wheelZoomRaf = 0;
+        const delta = wheelZoomDelta;
+        wheelZoomDelta = 0;
+        if (delta === 0) return;
+        if (epubBook) {
+          void setEpubFontPx(epubFontPx + (delta < 0 ? EPUB_FONT_STEP : -EPUB_FONT_STEP));
+        } else {
+          void setScale(scale + (delta < 0 ? 0.1 : -0.1));
+        }
+      });
     },
     { passive: false },
   );
@@ -3984,6 +4062,8 @@ function wire() {
         if (pdf) {
           ensureVisiblePdfText();
           schedulePdfPrune();
+        } else if (epubBook) {
+          scheduleEpubPrune();
         }
       });
     },
@@ -4009,8 +4089,12 @@ function wire() {
   });
   resize.observe(ui.stage);
 
-  if (inTauri()) listenTauriDrop();
-  else listenHtmlDrop();
+  if (inTauri()) {
+    listenTauriDrop();
+    listenOpenFiles();
+  } else {
+    listenHtmlDrop();
+  }
 
   void restoreLastDocument();
   window.setTimeout(() => void checkForUpdate(), 1500);

@@ -135,52 +135,119 @@ function normalizeFile(raw: Partial<FileMarks> | undefined): FileMarks {
   return marks;
 }
 
-let cache: MarksStore | null = null;
+/**
+ * Storage: one small file per document (`save_file_marks`/`load_file_marks`,
+ * keyed by a hash of its path — see `file_marks:` in lib.rs) instead of one
+ * blob holding every document's marks. Editing document A no longer costs an
+ * O(all-documents) serialize + disk write; it only touches A's file.
+ *
+ * Older builds wrote everything into a single `marks.json` blob. That file is
+ * never written again, but `marksFor` still falls back to reading an entry
+ * out of it (and, one layer further back, out of the pre-Tauri localStorage
+ * blob) the first time a document is opened after upgrading — so existing
+ * highlights and comments survive the switch. Once a document round-trips
+ * through `writeMarks`, it has its own file and the legacy blob is no longer
+ * consulted for it.
+ */
+const fileCache = new Map<string, FileMarks>();
+const dirtyPaths = new Set<string>();
+let legacyStore: Promise<MarksStore> | null = null;
+/**
+ * Real mark edits (drag-to-highlight, add/delete comment) are single, seconds-
+ * apart user gestures — there is no burst to batch here. This is a one-tick
+ * *deferral*, not a debounce: it only moves the JSON.stringify + IPC write off
+ * the synchronous click/pointerup handler so the gesture doesn't stall on it.
+ * Callers that can close the window (`flushMarksStore`) must flush
+ * synchronously first, since this pending write would otherwise be lost.
+ */
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
-export async function loadMarksStore(): Promise<MarksStore> {
-  if (cache) return cache;
-  try {
-    const json = await invoke<string>("load_marks");
-    cache = parseStore(json);
-    if (Object.keys(cache).length === 0) {
-      const local = parseStore(
-        localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY),
-      );
-      if (Object.keys(local).length) cache = local;
+function loadLegacyStore(): Promise<MarksStore> {
+  if (legacyStore) return legacyStore;
+  legacyStore = (async () => {
+    try {
+      const json = await invoke<string>("load_marks");
+      const disk = parseStore(json);
+      if (Object.keys(disk).length) return disk;
+    } catch {
+      /* browser / missing command */
     }
-    return cache;
-  } catch {
-    cache = parseStore(
+    return parseStore(
       localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY),
     );
-    return cache;
-  }
+  })();
+  return legacyStore;
 }
 
-export async function saveMarksStore(store: MarksStore): Promise<void> {
-  cache = store;
-  const json = JSON.stringify(store);
-  localStorage.setItem(STORAGE_KEY, json);
-  try {
-    await invoke("save_marks", { json });
-  } catch {
-    /* browser / missing command */
-  }
+function docStorageKey(path: string): string {
+  return `paperweight.marks.doc:${path}`;
 }
 
 export async function marksFor(path: string): Promise<FileMarks> {
-  const store = await loadMarksStore();
-  return normalizeFile(store[path]);
+  const cached = fileCache.get(path);
+  if (cached) return cached;
+  let marks: FileMarks | null = null;
+  try {
+    const json = await invoke<string>("load_file_marks", { path });
+    if (json) marks = normalizeFile(JSON.parse(json) as Partial<FileMarks>);
+  } catch {
+    /* browser / missing command / not yet migrated */
+  }
+  if (!marks) {
+    const fromLs = localStorage.getItem(docStorageKey(path));
+    if (fromLs) {
+      try {
+        marks = normalizeFile(JSON.parse(fromLs) as Partial<FileMarks>);
+      } catch {
+        /* corrupt entry */
+      }
+    }
+  }
+  if (!marks) {
+    const legacy = await loadLegacyStore();
+    if (legacy[path]) marks = normalizeFile(legacy[path]);
+  }
+  const result = marks ?? emptyMarks();
+  fileCache.set(path, result);
+  return result;
+}
+
+function flushSave(): void {
+  if (!dirtyPaths.size) return;
+  const paths = [...dirtyPaths];
+  dirtyPaths.clear();
+  for (const path of paths) {
+    const marks = fileCache.get(path);
+    if (!marks) continue;
+    const json = JSON.stringify(marks);
+    localStorage.setItem(docStorageKey(path), json);
+    void invoke("save_file_marks", { path, json }).catch(() => {
+      /* browser / missing command */
+    });
+  }
+}
+
+/** Flush pending deferred saves immediately — call before the app may exit. */
+export function flushMarksStore(): void {
+  if (saveTimer) {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
+  flushSave();
 }
 
 export async function writeMarks(path: string, marks: FileMarks): Promise<void> {
   if (!path) return;
-  const store = await loadMarksStore();
-  store[path] = {
+  fileCache.set(path, {
     highlights: marks.highlights.slice(-400),
     comments: marks.comments.slice(-200),
-  };
-  await saveMarksStore(store);
+  });
+  dirtyPaths.add(path);
+  if (saveTimer) clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    flushSave();
+  }, 0);
 }
 
 export function hexWithAlpha(hex: string, alpha = MARK_FILL_ALPHA): string {
