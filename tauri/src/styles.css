@@ -1547,14 +1547,12 @@ html[data-theme="light"] .pw-error {
 .app[data-tool="comment"] .hud-left .icon-btn,
 .app[data-tool="highlight"] .hud-left .icon-btn,
 .app[data-tool="erase"] .hud-left .icon-btn,
-.app.has-pdf-sel .hud-left .icon-btn,
 /* Scoped to the highlighter button itself, not the whole toolbar — hovering
    Contents/Bookmark/Comment shouldn't also pop the color swatches open. */
 .hl-cluster:hover .hl-tools,
 .hl-cluster:focus-within .hl-tools,
 .app[data-tool="highlight"] .hud-left .hl-tools,
 .app[data-tool="erase"] .hud-left .hl-tools,
-.app.has-pdf-sel .hud-left .hl-tools,
 .hud-bottom:hover .hud-bottom-bar,
 .hud-bottom.is-editing .hud-bottom-bar {
   opacity: 1;

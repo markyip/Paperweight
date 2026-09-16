@@ -2390,10 +2390,6 @@ function hideSelMenu() {
   selMenuPayload = null;
 }
 
-function syncPdfSelChrome() {
-  ui.app.classList.toggle("has-pdf-sel", Boolean(capturePageSelection()?.boxes.length));
-}
-
 /** Keep PDF text selection when clicking highlight chrome (mousedown would collapse it). */
 function preservePageSelection(el: HTMLElement) {
   el.addEventListener("pointerdown", (e) => {
@@ -2574,7 +2570,6 @@ function highlightFromSelection(color: string, payload: SelPayload | null = selM
   paintAllMarks();
   void persistMarks();
   window.getSelection()?.removeAllRanges();
-  syncPdfSelChrome();
 }
 
 /** HUD color well: highlight the current PDF selection, else pick color / draw. */
@@ -2599,7 +2594,6 @@ function wireSelMenu() {
       hideSelMenu();
       eraseHighlightsInSelection(payload);
       window.getSelection()?.removeAllRanges();
-      syncPdfSelChrome();
     });
   }
   MARK_COLORS.forEach((color, i) => {
@@ -3881,7 +3875,6 @@ function wire() {
   wireColorWell();
   wireSelMenu();
   setTool("none");
-  document.addEventListener("selectionchange", syncPdfSelChrome);
 
   ui.fabToggle.addEventListener("click", () => {
     const panel = fabPanel();
