@@ -1,6 +1,6 @@
 [package]
 name = "paperweight"
-version = "0.1.5"
+version = "0.1.6"
 description = "Paperweight — lightweight PDF / EPUB reader"
 authors = ["Mark Yip"]
 edition = "2021"

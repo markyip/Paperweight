@@ -62,7 +62,7 @@ const $ = <T extends HTMLElement>(id: string) =>
 
 const APP_TITLE = "Paperweight";
 /** Keep in sync with package.json / tauri.conf.json / Cargo.toml on version bumps. */
-const APP_VERSION = "0.1.5";
+const APP_VERSION = "0.1.6";
 const UPDATE_CHECK_URL = "https://api.github.com/repos/markyip/Paperweight/releases/latest";
 const UPDATE_FALLBACK_URL = "https://github.com/markyip/Paperweight/releases/latest";
 const UPDATE_SNOOZE_KEY = "paperweight.update.snoozeUntil";
@@ -143,6 +143,7 @@ const ui = {
   selHighlight: $("sel-highlight") as HTMLButtonElement,
   selMenuHl: $("sel-menu-hl"),
   selSwatches: $("sel-swatches"),
+  selErase: $("sel-erase") as HTMLButtonElement,
   updateToast: $("update-toast"),
   updateToastMsg: $("update-toast-msg"),
   updateToastView: $("update-toast-view") as HTMLButtonElement,
@@ -2343,6 +2344,32 @@ function eraseHighlightAt(page: number, x: number, y: number): boolean {
   return true;
 }
 
+function boxesOverlap(a: SelBox, b: { x: number; y: number; w: number; h: number }): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+function highlightsOverlappingSelection(payload: SelPayload): HighlightMark[] {
+  const hits: HighlightMark[] = [];
+  for (const box of payload.boxes) {
+    for (const hl of marksOnPage(fileMarks.highlights, box.page)) {
+      if (!hits.includes(hl) && boxesOverlap(box, hl)) hits.push(hl);
+    }
+  }
+  return hits;
+}
+
+/** Erase every highlight the current selection overlaps. Returns true if something was deleted. */
+function eraseHighlightsInSelection(payload: SelPayload | null = selMenuPayload): boolean {
+  if (!payload) return false;
+  const hits = highlightsOverlappingSelection(payload);
+  if (!hits.length) return false;
+  const ids = new Set(hits.map((h) => h.id));
+  fileMarks.highlights = fileMarks.highlights.filter((h) => !ids.has(h.id));
+  paintAllMarks();
+  void persistMarks();
+  return true;
+}
+
 function showPreview(slot: HTMLElement, box: { x: number; y: number; w: number; h: number } | null) {
   const el = slot.querySelector<HTMLElement>(".hl-preview");
   if (!el) return;
@@ -2422,8 +2449,9 @@ function boxesFromRange(range: Range): SelBox[] {
   for (const rect of range.getClientRects()) {
     if (rect.width < 1 || rect.height < 1) continue;
     const slot = slotAtPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    if (!slot || slot.classList.contains("epub-slot")) continue;
-    if (!slot.querySelector(".textLayer")) continue;
+    if (!slot) continue;
+    const isEpub = slot.classList.contains("epub-slot");
+    if (!slot.querySelector(isEpub ? ".epub-inner" : ".textLayer")) continue;
     const page = markPageIndex(slot.dataset.page);
     if (page == null) continue;
     const bound = slot.getBoundingClientRect();
@@ -2510,6 +2538,7 @@ function onPagesContextMenu(e: MouseEvent) {
   }
   selMenuPayload = snap;
   ui.selMenuHl.hidden = snap.boxes.length === 0;
+  if (ui.selErase) ui.selErase.hidden = highlightsOverlappingSelection(snap).length === 0;
   placeSelMenu(e.clientX, e.clientY);
 }
 
@@ -2564,6 +2593,15 @@ function applyChromeHighlightColor(color: string) {
 
 function wireSelMenu() {
   if (!ui.selMenu || !ui.selSwatches || !ui.selCopy || !ui.selHighlight || !ui.selMenuHl) return;
+  if (ui.selErase) {
+    ui.selErase.addEventListener("click", () => {
+      const payload = selMenuPayload;
+      hideSelMenu();
+      eraseHighlightsInSelection(payload);
+      window.getSelection()?.removeAllRanges();
+      syncPdfSelChrome();
+    });
+  }
   MARK_COLORS.forEach((color, i) => {
     const btn = document.createElement("button");
     btn.type = "button";

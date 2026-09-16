@@ -984,6 +984,16 @@ mark.search-hit {
   padding: 4px 8px 6px;
 }
 
+#sel-erase {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+#sel-erase[hidden] {
+  display: none;
+}
+
 .color-well {
   display: flex;
   flex-direction: column;
