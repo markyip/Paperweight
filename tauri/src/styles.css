@@ -1005,7 +1005,8 @@ mark.search-hit {
   background: #facc15;
 }
 
-.swatch.on {
+.sel-swatches .swatch.on,
+.app[data-tool="highlight"] .color-well .swatch.on {
   border-color: var(--ink);
   outline: 2px solid var(--accent);
   outline-offset: 1px;
