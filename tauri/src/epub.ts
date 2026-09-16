@@ -62,7 +62,7 @@ function attr(el: Element, ...names: string[]): string {
   return "";
 }
 
-function joinHref(base: string, href: string): string {
+export function joinHref(base: string, href: string): string {
   const path = (href || "").split("#", 1)[0].trim();
   const norm = (s: string) => s.replace(/\\/g, "/").replace(/^\/+/, "");
   if (!path) return norm(base);
@@ -569,6 +569,40 @@ export function cloneChapterInner(ch: EpubChapter): HTMLElement {
   clone.style.removeProperty("--epub-font-px");
   clone.style.transform = "";
   return clone;
+}
+
+/**
+ * Offset (px) of an in-chapter anchor from the chapter's top, for resolving a
+ * same-chapter `href="#id"` link click to the page slot that contains it.
+ * Mounts the chapter's cached master element into the shared measurement host
+ * (same one `measureChapter` uses) at the current reading font size — a stale
+ * or missing font size would measure the wrong layout and return an offset
+ * that lands in the wrong slice. Null if the fragment isn't found.
+ */
+export async function fragmentOffset(
+  ch: EpubChapter,
+  fragmentId: string,
+  fontPx: number,
+): Promise<number | null> {
+  if (!fragmentId) return null;
+  const host = getMeasureHost();
+  const inner = chapterInnerEl(ch);
+  inner.style.fontSize = `${fontPx}px`;
+  inner.style.setProperty("--epub-font-px", `${fontPx}px`);
+  inner.style.transform = "";
+  host.replaceChildren(inner);
+  await waitForMedia(inner);
+  void host.offsetHeight;
+  let target: Element | null = null;
+  try {
+    const escaped = CSS.escape(fragmentId);
+    target = inner.querySelector(`#${escaped}`) || inner.querySelector(`[name="${escaped}"]`);
+  } catch {
+    /* invalid selector */
+  }
+  if (!target) return null;
+  const origin = inner.getBoundingClientRect().top;
+  return target.getBoundingClientRect().top - origin;
 }
 
 function getMeasureHost(): HTMLDivElement {

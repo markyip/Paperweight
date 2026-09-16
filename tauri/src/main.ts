@@ -14,6 +14,8 @@ import {
   cloneChapterInner,
   clearEpubLayoutCache,
   revokeBlobs,
+  joinHref,
+  fragmentOffset,
   EpubError,
   type EpubBook,
   type EpubPage,
@@ -60,7 +62,7 @@ const $ = <T extends HTMLElement>(id: string) =>
 
 const APP_TITLE = "Paperweight";
 /** Keep in sync with package.json / tauri.conf.json / Cargo.toml on version bumps. */
-const APP_VERSION = "0.1.4";
+const APP_VERSION = "0.1.5";
 const UPDATE_CHECK_URL = "https://api.github.com/repos/markyip/Paperweight/releases/latest";
 const UPDATE_FALLBACK_URL = "https://github.com/markyip/Paperweight/releases/latest";
 const UPDATE_SNOOZE_KEY = "paperweight.update.snoozeUntil";
@@ -81,6 +83,7 @@ const ui = {
   winMin: $("btn-win-min") as HTMLButtonElement,
   winMax: $("btn-win-max") as HTMLButtonElement,
   winClose: $("btn-win-close") as HTMLButtonElement,
+  hudLeft: $("hud-left"),
   contents: $("btn-contents") as HTMLButtonElement,
   bookmark: $("btn-bookmark") as HTMLButtonElement,
   highlight: $("btn-highlight") as HTMLButtonElement,
@@ -778,6 +781,7 @@ function blurFabChrome() {
 function setFabPanel(panel: FabPanel) {
   const prev = fabPanel();
   ui.fab.dataset.panel = panel;
+  ui.app.classList.toggle("fab-open", panel !== "closed");
   ui.fabToggle.title = panel === "closed" ? "Settings" : "Close";
   ui.fabToggle.setAttribute("aria-label", ui.fabToggle.title);
   ui.fabToggle.setAttribute("aria-expanded", panel === "closed" ? "false" : "true");
@@ -1209,6 +1213,51 @@ async function destToPage(
 function spineToPage(spineIndex: number): number {
   const idx = epubPages.findIndex((p) => p.spine === spineIndex);
   return idx >= 0 ? idx + 1 : 1;
+}
+
+/** Which page (1-based) within a spine's pages contains a given chapter-relative offset. */
+function pageForChapterOffset(spineIndex: number, offsetPx: number): number | null {
+  let fallback = -1;
+  for (let i = 0; i < epubPages.length; i++) {
+    const p = epubPages[i];
+    if (p.spine !== spineIndex) continue;
+    if (fallback < 0) fallback = i;
+    if (offsetPx >= p.offset && offsetPx < p.offset + p.sliceHeight) return i + 1;
+    if (offsetPx >= p.offset) fallback = i;
+  }
+  return fallback >= 0 ? fallback + 1 : null;
+}
+
+/**
+ * Resolve an EPUB content link's raw href (as authored — `rewriteResources`
+ * deliberately leaves non-image hrefs untouched) to the page it points to.
+ * Returns null for anything that isn't a resolvable same-book link. A link
+ * written as `chapter5.xhtml#note1` from inside chapter5 itself still takes
+ * the cross-chapter branch below (targetSpine === sourceSpine) and correctly
+ * lands on the fragment — it isn't a special case.
+ */
+async function resolveEpubLinkPage(rawHref: string, sourceSpine: number): Promise<number | null> {
+  if (!epubBook) return null;
+  const [pathPart, fragment = ""] = rawHref.split("#");
+  if (!pathPart) {
+    if (!fragment) return null;
+    const chapter = epubBook.chapters[sourceSpine];
+    if (!chapter) return null;
+    const offset = await fragmentOffset(chapter, fragment, epubFontPx);
+    return offset == null ? null : pageForChapterOffset(sourceSpine, offset);
+  }
+  const sourceHref = epubBook.chapters[sourceSpine]?.href || "";
+  const resolved = joinHref(sourceHref, pathPart);
+  const targetSpine = epubBook.chapters.findIndex(
+    (c) => c.href === resolved || c.href.split("/").pop() === resolved.split("/").pop(),
+  );
+  if (targetSpine < 0) return null;
+  if (fragment) {
+    const offset = await fragmentOffset(epubBook.chapters[targetSpine], fragment, epubFontPx);
+    const page = offset == null ? null : pageForChapterOffset(targetSpine, offset);
+    if (page != null) return page;
+  }
+  return spineToPage(targetSpine);
 }
 
 function renderPdfToc(
@@ -3843,6 +3892,29 @@ function wire() {
     if (document.visibilityState === "hidden") flushMarksStore();
   });
   window.addEventListener("pagehide", () => flushMarksStore());
+
+  // #hud-left's empty margin is pointer-events: none (see styles.css — needed so
+  // it doesn't swallow clicks meant for the sidebar/page content underneath it),
+  // so plain CSS :hover on that empty space never fires. Track the cursor
+  // ourselves so a generously wide hover-to-reveal zone doesn't reintroduce a
+  // dead zone for clicks.
+  let hudHoverRaf = 0;
+  window.addEventListener(
+    "pointermove",
+    (e) => {
+      if (hudHoverRaf) return;
+      const clientX = e.clientX;
+      hudHoverRaf = requestAnimationFrame(() => {
+        hudHoverRaf = 0;
+        const zoneLeft = ui.hudLeft.getBoundingClientRect().left;
+        ui.app.classList.toggle("hud-hotzone", clientX >= zoneLeft);
+      });
+    },
+    { passive: true },
+  );
+  document.documentElement.addEventListener("mouseleave", () => {
+    ui.app.classList.remove("hud-hotzone");
+  });
   ui.print.addEventListener("click", () => {
     closeFabFlyout();
     void printDoc();
@@ -3936,6 +4008,27 @@ function wire() {
     if (!hasDoc()) return;
     const slot = (e.target as HTMLElement).closest<HTMLElement>(".page-slot");
     if (!slot) return;
+    if (epubBook) {
+      const anchor = (e.target as HTMLElement).closest<HTMLAnchorElement>(".epub-inner a[href]");
+      if (anchor) {
+        e.preventDefault();
+        const rawHref = anchor.getAttribute("href") || "";
+        if (/^(javascript|data):/i.test(rawHref)) return;
+        if (/^[a-z][a-z0-9+.-]*:/i.test(rawHref)) {
+          void openUrl(rawHref).catch(() => {
+            /* browser preview / missing opener */
+          });
+          return;
+        }
+        const sourceSpine = epubPages[Number(slot.dataset.page) - 1]?.spine;
+        if (sourceSpine != null) {
+          void resolveEpubLinkPage(rawHref, sourceSpine).then((targetPage) => {
+            if (targetPage != null) goToPage(targetPage);
+          });
+        }
+        return;
+      }
+    }
     selectVisiblePage(Number(slot.dataset.page));
   });
 

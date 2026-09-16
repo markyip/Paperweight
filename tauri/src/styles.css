@@ -849,12 +849,18 @@ mark.search-hit {
   z-index: auto !important;
 }
 
-.epub-slot img,
-.epub-measure img,
-.epub-slot video,
-.epub-measure video,
-.epub-slot canvas,
-.epub-measure canvas {
+/* Scoped to .epub-inner (the book's own content), not just .epub-slot —
+   .mark-layer/.search-layer are also bare <svg> elements in an .epub-slot,
+   but as UI overlays (siblings of .page-body, not descendants of .epub-inner)
+   they were never meant to be capped to the book media's max-height. That
+   silently shrank their coordinate space below the slot's actual size,
+   throwing off highlight placement and hit-testing for erase. */
+.epub-slot .epub-inner img,
+.epub-measure .epub-inner img,
+.epub-slot .epub-inner video,
+.epub-measure .epub-inner video,
+.epub-slot .epub-inner canvas,
+.epub-measure .epub-inner canvas {
   display: block;
   max-width: 100% !important;
   max-height: var(--epub-media-max-h, 70vh) !important;
@@ -866,8 +872,8 @@ mark.search-hit {
   page-break-inside: avoid;
 }
 
-.epub-slot svg,
-.epub-measure svg {
+.epub-slot .epub-inner svg,
+.epub-measure .epub-inner svg {
   display: block;
   max-width: 100% !important;
   max-height: var(--epub-media-max-h, 70vh) !important;
@@ -1194,17 +1200,30 @@ html[data-theme="light"] .pw-error {
 .hud {
   position: absolute;
   z-index: 4;
+  /* This box is much larger than the buttons it holds (full-height / full-width
+     hover targets) so it sits on top of the sidebar and page content underneath
+     it. Without this, clicks on that empty space — e.g. a TOC entry's title
+     text, which starts right at the left edge — were silently swallowed by
+     this container instead of reaching what's underneath. Buttons opt back in
+     below regardless of the hover/opacity state that reveals them visually. */
+  pointer-events: none;
 }
 
 .hud-left {
   top: 0;
   bottom: 0;
-  left: 0;
-  width: 56px;
+  right: 0;
+  /* Wider than the buttons need so the hover-to-reveal target is generous —
+     buttons hug the right edge (align-items: flex-end) so this extra width
+     is just invisible hover margin, not visible layout space. padding-right
+     matches .fab's own 18px inset so both share the same right-edge line. */
+  width: 96px;
+  padding-right: 18px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
 }
 
@@ -1218,7 +1237,7 @@ html[data-theme="light"] .pw-error {
 .hud-left .hl-tools {
   position: absolute;
   top: 50%;
-  left: calc(100% + 8px);
+  right: calc(100% + 8px);
   z-index: 1;
   transform: translateY(-50%);
   display: flex;
@@ -1260,6 +1279,13 @@ html[data-theme="light"] .pw-error {
   min-width: var(--fab-hit);
   min-height: var(--fab-hit);
   padding: 18px;
+  /* min-width/height reserve the full 160px box regardless of the menu's open
+     state, but only .fab-toggle (closed) or .fab-menu (open) actually occupy
+     it — the rest was, before this rule, plain pointer-events:auto empty
+     space sitting at z-index 6 above the page, silently swallowing clicks
+     meant for content underneath. Same class of bug as .hud (see its
+     comment); same fix. */
+  pointer-events: none;
 }
 
 .fab-menu {
@@ -1267,6 +1293,11 @@ html[data-theme="light"] .pw-error {
   flex-direction: column;
   align-items: flex-end;
   gap: 10px;
+  /* Only rendered (and hit-testable) at all once .fab[data-panel] leaves
+     "closed" (see the display: none rule below) — every pixel inside it at
+     that point is a deliberate button or gap, not oversized empty margin, so
+     this can be unconditional. */
+  pointer-events: auto;
 }
 
 .fab-flyout-wrap {
@@ -1436,15 +1467,21 @@ html[data-theme="light"] .pw-error {
   place-items: center;
   box-shadow: var(--shadow);
   opacity: 0;
-  pointer-events: none;
+  /* Always hit-testable at its own position — same reasoning as .hud-left's
+     buttons (see the pointer-events: none comment on .fab above). Only
+     opacity (the visual reveal) is state-toggled below. */
+  pointer-events: auto;
   transition: opacity 200ms ease, background-color 200ms ease, border-color 200ms ease, color 200ms ease;
 }
 
 .fab:hover .fab-toggle,
 .fab:has(:focus-visible) .fab-toggle,
-.fab:not([data-panel="closed"]) .fab-toggle {
+.fab:not([data-panel="closed"]) .fab-toggle,
+/* #hud-left's hover zone (see main.ts) already spans the full right edge,
+   overlapping .fab's corner — share it so the toolbar and Settings reveal
+   together instead of needing a separate hover for each. */
+.app.hud-hotzone .fab-toggle {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .fab-toggle svg {
@@ -1484,27 +1521,42 @@ html[data-theme="light"] .pw-error {
 .hud-left .icon-btn,
 .hud-left .hl-tools,
 .hud-bottom-bar {
+  /* Always hit-testable at their own position — see the pointer-events: none
+     comment on .hud above. Only opacity (the visual reveal) is state-toggled. */
   opacity: 0;
-  pointer-events: none;
+  pointer-events: auto;
   transition: opacity 200ms ease;
 }
 
 .hud-left:hover .icon-btn,
 .hud-left:focus-within .icon-btn,
+/* JS-driven — see the pointermove listener in main.ts's wire(). */
+.app.hud-hotzone .hud-left .icon-btn,
 .app.sidebar-open .hud-left .icon-btn,
 .app[data-tool="comment"] .hud-left .icon-btn,
 .app[data-tool="highlight"] .hud-left .icon-btn,
 .app[data-tool="erase"] .hud-left .icon-btn,
 .app.has-pdf-sel .hud-left .icon-btn,
-.hud-left:hover .hl-tools,
-.hud-left:focus-within .hl-tools,
+/* Scoped to the highlighter button itself, not the whole toolbar — hovering
+   Contents/Bookmark/Comment shouldn't also pop the color swatches open. */
+.hl-cluster:hover .hl-tools,
+.hl-cluster:focus-within .hl-tools,
 .app[data-tool="highlight"] .hud-left .hl-tools,
 .app[data-tool="erase"] .hud-left .hl-tools,
 .app.has-pdf-sel .hud-left .hl-tools,
 .hud-bottom:hover .hud-bottom-bar,
 .hud-bottom.is-editing .hud-bottom-bar {
   opacity: 1;
-  pointer-events: auto;
+}
+
+/* The Settings panel's own menu stacks in this same right-edge column when
+   open — hide the toolbar instead of letting the two visually overlap. Same
+   specificity as the reveal rules above (four class/pseudo-class components),
+   so this must stay after them in source order to win the tie. */
+.app.fab-open .hud-left .icon-btn,
+.app.fab-open .hud-left .hl-tools {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .icon-btn {
